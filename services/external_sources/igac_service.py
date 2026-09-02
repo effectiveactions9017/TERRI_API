@@ -4,8 +4,11 @@
 # Consulta servicios REST oficiales del IGAC
 # ============================================================
 
+import re
 import requests
 import unicodedata
+
+from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 
@@ -72,7 +75,10 @@ def consultar_igac(
 
     if isinstance(datos, dict) and datos.get("error"):
 
-        error = datos.get("error", {})
+        error = datos.get(
+            "error",
+            {}
+        )
 
         mensaje = (
             error.get("message")
@@ -82,18 +88,21 @@ def consultar_igac(
         detalles = error.get("details")
 
         if detalles:
+
             mensaje += " " + " ".join(
-                str(x)
-                for x in detalles
+                str(detalle)
+                for detalle in detalles
             )
 
-        raise RuntimeError(mensaje)
+        raise RuntimeError(
+            mensaje
+        )
 
     return datos
 
 
 # ============================================================
-# ESTADO DEL SERVICIO
+# ESTADO DEL SERVICIO IGAC
 # ============================================================
 
 def verificar_servicio_igac() -> Dict[str, Any]:
@@ -127,9 +136,10 @@ def verificar_servicio_igac() -> Dict[str, Any]:
 
 
 # ============================================================
-# OBTENER MUNICIPIOS SIN GEOMETRÍA
+# LISTAR MUNICIPIOS
 # ============================================================
 
+@lru_cache(maxsize=1)
 def listar_municipios() -> List[Dict[str, Any]]:
 
     url = (
@@ -141,7 +151,9 @@ def listar_municipios() -> List[Dict[str, Any]]:
         url,
         {
             "where": "1=1",
-            "outFields": "MpCodigo,MpNombre,Depto",
+            "outFields": (
+                "MpCodigo,MpNombre,Depto"
+            ),
             "returnGeometry": "false",
             "f": "json"
         }
@@ -179,7 +191,7 @@ def listar_municipios() -> List[Dict[str, Any]]:
 
 
 # ============================================================
-# BUSCAR MUNICIPIO POR NOMBRE
+# BUSCAR MUNICIPIO
 # ============================================================
 
 def buscar_municipio(
@@ -187,8 +199,8 @@ def buscar_municipio(
     departamento: Optional[str] = None
 ) -> List[Dict[str, Any]]:
 
-    nombre_normalizado = normalizar_texto(
-        nombre
+    nombre_normalizado = (
+        normalizar_texto(nombre)
     )
 
     departamento_normalizado = (
@@ -217,7 +229,10 @@ def buscar_municipio(
             )
         )
 
-        if nombre_igac != nombre_normalizado:
+        if (
+            nombre_igac
+            != nombre_normalizado
+        ):
             continue
 
         if (
@@ -235,7 +250,7 @@ def buscar_municipio(
 
 
 # ============================================================
-# CONSULTAR LÍMITE MUNICIPAL POR CÓDIGO
+# LÍMITE MUNICIPAL POR CÓDIGO
 # ============================================================
 
 def consultar_limite_municipio_codigo(
@@ -261,16 +276,14 @@ def consultar_limite_municipio_codigo(
         "f": "geojson"
     }
 
-    geojson = consultar_igac(
+    return consultar_igac(
         url,
         parametros
     )
 
-    return geojson
-
 
 # ============================================================
-# CONSULTAR LÍMITE MUNICIPAL POR NOMBRE
+# LÍMITE MUNICIPAL POR NOMBRE
 # ============================================================
 
 def consultar_limite_municipio(
@@ -303,7 +316,8 @@ def consultar_limite_municipio(
             "fuente": "IGAC",
             "mensaje": (
                 f"Se encontraron varios municipios "
-                f"llamados '{nombre}'."
+                f"llamados '{nombre}'. "
+                f"Indica también el departamento."
             ),
             "opciones": coincidencias
         }
@@ -337,21 +351,22 @@ def consultar_limite_municipio(
             )
         }
 
+    nombre_municipio = municipio.get(
+        "municipio"
+    )
+
+    nombre_departamento = municipio.get(
+        "departamento"
+    )
+
     return {
         "ok": True,
         "tipo": "geojson",
         "modo": "mapa",
-
         "fuente": "IGAC",
 
-        "municipio": municipio.get(
-            "municipio"
-        ),
-
-        "departamento": municipio.get(
-            "departamento"
-        ),
-
+        "municipio": nombre_municipio,
+        "departamento": nombre_departamento,
         "codigo": codigo,
 
         "resultado": geojson,
@@ -363,9 +378,9 @@ def consultar_limite_municipio(
 
         "visualizacion": {
             "modo": "simple",
-            "mostrar_leyenda": False,
+            "mostrar_leyenda": True,
             "titulo_leyenda": (
-                "Límite municipal IGAC"
+                f"Límite de {nombre_municipio}"
             )
         },
 
@@ -374,13 +389,13 @@ def consultar_limite_municipio(
             "fuente": "IGAC",
             "mensaje": (
                 f"Se consultó el límite oficial de "
-                f"{municipio.get('municipio')} "
+                f"{nombre_municipio}, "
+                f"{nombre_departamento}, "
                 f"en el servicio REST del IGAC."
             )
         },
 
         "ejecuto_sql": False,
-
         "reutilizado": False
     }
 
@@ -389,6 +404,7 @@ def consultar_limite_municipio(
 # LISTAR DEPARTAMENTOS
 # ============================================================
 
+@lru_cache(maxsize=1)
 def listar_departamentos() -> List[Dict[str, Any]]:
 
     url = (
@@ -400,7 +416,9 @@ def listar_departamentos() -> List[Dict[str, Any]]:
         url,
         {
             "where": "1=1",
-            "outFields": "*",
+            "outFields": (
+                "DeCodigo,DeNombre,DeArea,DeNorma"
+            ),
             "returnGeometry": "false",
             "f": "json"
         }
@@ -421,7 +439,439 @@ def listar_departamentos() -> List[Dict[str, Any]]:
         )
 
         resultado.append(
-            atributos
+            {
+                "codigo": atributos.get(
+                    "DeCodigo"
+                ),
+                "departamento": atributos.get(
+                    "DeNombre"
+                ),
+                "area_km2": atributos.get(
+                    "DeArea"
+                ),
+                "norma": atributos.get(
+                    "DeNorma"
+                )
+            }
         )
 
     return resultado
+
+
+# ============================================================
+# BUSCAR DEPARTAMENTO
+# ============================================================
+
+def buscar_departamento(
+    nombre: str
+) -> List[Dict[str, Any]]:
+
+    nombre_normalizado = (
+        normalizar_texto(nombre)
+    )
+
+    departamentos = listar_departamentos()
+
+    coincidencias = []
+
+    for departamento in departamentos:
+
+        nombre_igac = normalizar_texto(
+            departamento.get(
+                "departamento"
+            )
+        )
+
+        if (
+            nombre_igac
+            == nombre_normalizado
+        ):
+
+            coincidencias.append(
+                departamento
+            )
+
+    return coincidencias
+
+
+# ============================================================
+# LÍMITE DEPARTAMENTAL POR CÓDIGO
+# ============================================================
+
+def consultar_limite_departamento_codigo(
+    codigo: str
+) -> Dict[str, Any]:
+
+    codigo = str(
+        codigo
+    ).strip()
+
+    url = (
+        f"{IGAC_LIMITES_BASE}/"
+        f"{CAPA_DEPARTAMENTOS}/query"
+    )
+
+    parametros = {
+        "where": (
+            f"DeCodigo='{codigo}'"
+        ),
+        "outFields": "*",
+        "returnGeometry": "true",
+        "outSR": "4326",
+        "f": "geojson"
+    }
+
+    return consultar_igac(
+        url,
+        parametros
+    )
+
+
+# ============================================================
+# LÍMITE DEPARTAMENTAL POR NOMBRE
+# ============================================================
+
+def consultar_limite_departamento(
+    nombre: str
+) -> Dict[str, Any]:
+
+    coincidencias = (
+        buscar_departamento(
+            nombre
+        )
+    )
+
+    if not coincidencias:
+
+        return {
+            "ok": False,
+            "tipo": "sin_resultado",
+            "fuente": "IGAC",
+            "mensaje": (
+                f"No se encontró el departamento "
+                f"'{nombre}' en el servicio del IGAC."
+            )
+        }
+
+    departamento = coincidencias[0]
+
+    codigo = departamento.get(
+        "codigo"
+    )
+
+    geojson = (
+        consultar_limite_departamento_codigo(
+            codigo
+        )
+    )
+
+    features = geojson.get(
+        "features",
+        []
+    )
+
+    if not features:
+
+        return {
+            "ok": False,
+            "tipo": "sin_geometria",
+            "fuente": "IGAC",
+            "mensaje": (
+                "El departamento fue encontrado, "
+                "pero el servicio no devolvió geometría."
+            )
+        }
+
+    nombre_departamento = departamento.get(
+        "departamento"
+    )
+
+    return {
+        "ok": True,
+        "tipo": "geojson",
+        "modo": "mapa",
+        "fuente": "IGAC",
+
+        "departamento": nombre_departamento,
+        "codigo": codigo,
+
+        "resultado": geojson,
+
+        "layer_id": (
+            "igac_limite_departamento_"
+            + str(codigo)
+        ),
+
+        "visualizacion": {
+            "modo": "simple",
+            "mostrar_leyenda": True,
+            "titulo_leyenda": (
+                f"Límite de {nombre_departamento}"
+            )
+        },
+
+        "inteligencia": {
+            "tipo": "fuente_externa",
+            "fuente": "IGAC",
+            "mensaje": (
+                f"Se consultó el límite oficial del "
+                f"departamento de {nombre_departamento} "
+                f"en el servicio REST del IGAC."
+            )
+        },
+
+        "ejecuto_sql": False,
+        "reutilizado": False
+    }
+
+
+# ============================================================
+# DETECTAR CONSULTA DE LÍMITES IGAC
+# ============================================================
+
+def es_consulta_limites_igac(
+    pregunta: str
+) -> bool:
+
+    texto = normalizar_texto(
+        pregunta
+    )
+
+    palabras_limite = [
+        "limite",
+        "limites",
+        "delimitacion",
+        "delimitaciones"
+    ]
+
+    menciona_limite = any(
+        palabra in texto
+        for palabra in palabras_limite
+    )
+
+    menciona_igac = (
+        "igac" in texto
+    )
+
+    return bool(
+        menciona_limite
+        or menciona_igac
+    )
+
+
+# ============================================================
+# ENCONTRAR MUNICIPIO MENCIONADO EN LA PREGUNTA
+# ============================================================
+
+def detectar_municipio_en_pregunta(
+    pregunta: str
+) -> Optional[Dict[str, Any]]:
+
+    texto = normalizar_texto(
+        pregunta
+    )
+
+    municipios = listar_municipios()
+
+    coincidencias = []
+
+    for municipio in municipios:
+
+        nombre = municipio.get(
+            "municipio"
+        )
+
+        nombre_normalizado = (
+            normalizar_texto(
+                nombre
+            )
+        )
+
+        if not nombre_normalizado:
+            continue
+
+        patron = (
+            r"\b"
+            + re.escape(
+                nombre_normalizado
+            )
+            + r"\b"
+        )
+
+        if re.search(
+            patron,
+            texto
+        ):
+
+            coincidencias.append(
+                municipio
+            )
+
+    if not coincidencias:
+        return None
+
+    coincidencias.sort(
+        key=lambda item: len(
+            normalizar_texto(
+                item.get(
+                    "municipio"
+                )
+            )
+        ),
+        reverse=True
+    )
+
+    return coincidencias[0]
+
+
+# ============================================================
+# ENCONTRAR DEPARTAMENTO MENCIONADO EN LA PREGUNTA
+# ============================================================
+
+def detectar_departamento_en_pregunta(
+    pregunta: str
+) -> Optional[Dict[str, Any]]:
+
+    texto = normalizar_texto(
+        pregunta
+    )
+
+    departamentos = (
+        listar_departamentos()
+    )
+
+    coincidencias = []
+
+    for departamento in departamentos:
+
+        nombre = departamento.get(
+            "departamento"
+        )
+
+        nombre_normalizado = (
+            normalizar_texto(
+                nombre
+            )
+        )
+
+        if not nombre_normalizado:
+            continue
+
+        patron = (
+            r"\b"
+            + re.escape(
+                nombre_normalizado
+            )
+            + r"\b"
+        )
+
+        if re.search(
+            patron,
+            texto
+        ):
+
+            coincidencias.append(
+                departamento
+            )
+
+    if not coincidencias:
+        return None
+
+    coincidencias.sort(
+        key=lambda item: len(
+            normalizar_texto(
+                item.get(
+                    "departamento"
+                )
+            )
+        ),
+        reverse=True
+    )
+
+    return coincidencias[0]
+
+
+# ============================================================
+# RESOLVER CONSULTA NATURAL DE LÍMITES
+# ============================================================
+
+def resolver_consulta_limites(
+    pregunta: str
+) -> Optional[Dict[str, Any]]:
+
+    if not es_consulta_limites_igac(
+        pregunta
+    ):
+        return None
+
+    texto = normalizar_texto(
+        pregunta
+    )
+
+    municipio = (
+        detectar_municipio_en_pregunta(
+            pregunta
+        )
+    )
+
+    departamento = (
+        detectar_departamento_en_pregunta(
+            pregunta
+        )
+    )
+
+    # --------------------------------------------------------
+    # PRIORIZAR DEPARTAMENTO SI EL USUARIO LO INDICA
+    # EXPLÍCITAMENTE
+    # --------------------------------------------------------
+
+    if (
+        departamento
+        and (
+            "departamento" in texto
+            or "departamental" in texto
+        )
+    ):
+
+        return consultar_limite_departamento(
+            departamento.get(
+                "departamento"
+            )
+        )
+
+    # --------------------------------------------------------
+    # MUNICIPIO
+    # --------------------------------------------------------
+
+    if municipio:
+
+        return consultar_limite_municipio(
+            nombre=municipio.get(
+                "municipio"
+            ),
+            departamento=municipio.get(
+                "departamento"
+            )
+        )
+
+    # --------------------------------------------------------
+    # DEPARTAMENTO
+    # --------------------------------------------------------
+
+    if departamento:
+
+        return consultar_limite_departamento(
+            departamento.get(
+                "departamento"
+            )
+        )
+
+    return {
+        "ok": False,
+        "tipo": "sin_resultado",
+        "fuente": "IGAC",
+        "mensaje": (
+            "Entendí que deseas consultar un límite del IGAC, "
+            "pero no pude identificar el municipio o departamento."
+        )
+    }
