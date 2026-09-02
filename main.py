@@ -2,23 +2,34 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import ejecutar_sql
+
 from consultas.predios import analizar_predios
 from consultas.construcciones import analizar_construcciones
 
-from consultas.igac import (
-    estado_igac,
+from services.external_sources.igac_service import (
+    verificar_servicio_igac,
+    listar_municipios,
     buscar_municipio,
-    limite_municipio,
-    limite_municipio_codigo
+    consultar_limite_municipio,
+    consultar_limite_municipio_codigo,
+    listar_departamentos,
 )
 
 import ia
 
 
+# ============================================================
+# TERRI+
+# API PRINCIPAL
+# ============================================================
+
 app = FastAPI(
     title="TERRI+ IA Territorial",
-    description="Motor inteligente para análisis geoespacial con PostGIS e IGAC",
-    version="2.2"
+    description=(
+        "Motor inteligente para análisis geoespacial "
+        "con PostGIS y fuentes oficiales externas como IGAC"
+    ),
+    version="2.3"
 )
 
 
@@ -36,10 +47,12 @@ app.add_middleware(
 
 
 # ============================================================
-# ROUTER IA
+# ROUTER IA TERRI+
 # ============================================================
 
-app.include_router(ia.router)
+app.include_router(
+    ia.router
+)
 
 
 # ============================================================
@@ -54,7 +67,7 @@ def inicio():
         "sistema": "🤖 TERRI+ IA Territorial funcionando",
         "postgis": "conectado",
         "igac": "disponible",
-        "version": "2.2 modular"
+        "version": "2.3 modular"
     }
 
 
@@ -65,10 +78,12 @@ def inicio():
 @app.get("/test_predios")
 def test_predios():
 
-    resultado = ejecutar_sql("""
+    resultado = ejecutar_sql(
+        """
         SELECT COUNT(*) AS total_predios
         FROM predios_sesquile;
-    """)
+        """
+    )
 
     return {
         "capa": "predios_sesquile",
@@ -83,10 +98,12 @@ def test_predios():
 @app.get("/test_construcciones")
 def test_construcciones():
 
-    resultado = ejecutar_sql("""
+    resultado = ejecutar_sql(
+        """
         SELECT COUNT(*) AS total_construcciones
         FROM construcciones_sesquile;
-    """)
+        """
+    )
 
     return {
         "capa": "construcciones_sesquile",
@@ -95,28 +112,66 @@ def test_construcciones():
 
 
 # ============================================================
-# TEST IGAC
+# TEST CONEXIÓN IGAC
 # ============================================================
 
 @app.get("/test_igac")
 def test_igac():
 
-    return estado_igac()
+    return verificar_servicio_igac()
 
 
 # ============================================================
-# BUSCAR MUNICIPIO EN IGAC
+# TEST LÍMITE MUNICIPAL IGAC
+# ============================================================
+
+@app.get("/test_igac/municipio/{nombre}")
+def test_igac_municipio(
+    nombre: str
+):
+
+    return consultar_limite_municipio(
+        nombre
+    )
+
+
+# ============================================================
+# LISTAR MUNICIPIOS IGAC
+# ============================================================
+
+@app.get("/igac/municipios")
+def igac_listar_municipios():
+
+    municipios = listar_municipios()
+
+    return {
+        "fuente": "IGAC",
+        "total": len(municipios),
+        "resultados": municipios
+    }
+
+
+# ============================================================
+# BUSCAR MUNICIPIO IGAC
 # ============================================================
 
 @app.get("/igac/municipio/buscar")
-def igac_buscar_municipio(nombre: str):
+def igac_buscar_municipio(
+    nombre: str,
+    departamento: str | None = None
+):
 
-    resultado = buscar_municipio(nombre)
+    resultados = buscar_municipio(
+        nombre=nombre,
+        departamento=departamento
+    )
 
     return {
+        "fuente": "IGAC",
         "consulta": nombre,
-        "total": len(resultado),
-        "resultados": resultado
+        "departamento": departamento,
+        "total": len(resultados),
+        "resultados": resultados
     }
 
 
@@ -125,23 +180,70 @@ def igac_buscar_municipio(nombre: str):
 # ============================================================
 
 @app.get("/igac/limite/municipio")
-def igac_limite_municipio(nombre: str):
+def igac_limite_municipio(
+    nombre: str,
+    departamento: str | None = None
+):
 
-    return limite_municipio(nombre)
+    return consultar_limite_municipio(
+        nombre=nombre,
+        departamento=departamento
+    )
 
 
 # ============================================================
 # LÍMITE MUNICIPAL POR CÓDIGO DANE
 # ============================================================
 
-@app.get("/igac/limite/municipio/{codigo}")
-def igac_limite_municipio_codigo(codigo: str):
+@app.get("/igac/limite/municipio/codigo/{codigo}")
+def igac_limite_municipio_codigo(
+    codigo: str
+):
+
+    geojson = (
+        consultar_limite_municipio_codigo(
+            codigo
+        )
+    )
 
     return {
-        "tipo": "municipio",
+        "ok": True,
+        "tipo": "geojson",
+        "modo": "mapa",
         "fuente": "IGAC",
         "codigo": codigo,
-        "geojson": limite_municipio_codigo(codigo)
+        "resultado": geojson,
+        "layer_id": (
+            "igac_limite_municipio_"
+            + str(codigo)
+        ),
+        "visualizacion": {
+            "modo": "simple",
+            "mostrar_leyenda": False,
+            "titulo_leyenda": (
+                "Límite municipal IGAC"
+            )
+        },
+        "ejecuto_sql": False,
+        "reutilizado": False
+    }
+
+
+# ============================================================
+# LISTAR DEPARTAMENTOS IGAC
+# ============================================================
+
+@app.get("/igac/departamentos")
+def igac_listar_departamentos():
+
+    departamentos = (
+        listar_departamentos()
+    )
+
+    return {
+        "fuente": "IGAC",
+        "total": len(departamentos),
+        "resultados": departamentos
     }
 
 
@@ -150,13 +252,25 @@ def igac_limite_municipio_codigo(codigo: str):
 # ============================================================
 
 @app.post("/analizar")
-def analizar(datos: dict):
+def analizar(
+    datos: dict
+):
 
-    pregunta = datos.get("pregunta", "").lower()
+    pregunta_original = str(
+        datos.get(
+            "pregunta",
+            ""
+        )
+    ).strip()
 
-    # --------------------------------------------------------
+    pregunta = (
+        pregunta_original.lower()
+    )
+
+
+    # ========================================================
     # CONSTRUCCIONES
-    # --------------------------------------------------------
+    # ========================================================
 
     if (
         "construccion" in pregunta
@@ -166,13 +280,18 @@ def analizar(datos: dict):
     ):
 
         return {
-            "pregunta": pregunta,
-            "respuesta": analizar_construcciones(pregunta)
+            "pregunta": pregunta_original,
+            "respuesta": (
+                analizar_construcciones(
+                    pregunta
+                )
+            )
         }
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # PREDIOS
-    # --------------------------------------------------------
+    # ========================================================
 
     if (
         "predio" in pregunta
@@ -188,20 +307,27 @@ def analizar(datos: dict):
     ):
 
         return {
-            "pregunta": pregunta,
-            "respuesta": analizar_predios(pregunta)
+            "pregunta": pregunta_original,
+            "respuesta": (
+                analizar_predios(
+                    pregunta
+                )
+            )
         }
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # AYUDA
-    # --------------------------------------------------------
+    # ========================================================
 
     return {
-        "pregunta": pregunta,
+        "pregunta": pregunta_original,
         "respuesta": """
 🤖 TERRI+ IA
 
-Puedo analizar actualmente:
+Puedo analizar actualmente información territorial
+almacenada en PostGIS y consultar fuentes oficiales
+externas.
 
 1. Predios
    - total de predios
@@ -214,18 +340,31 @@ Puedo analizar actualmente:
    - área promedio
    - altura máxima
    - años con mayor número de construcciones
-   - confianza promedio
+   - confianza promedio del modelo
 
 3. Servicios oficiales IGAC
-   - búsqueda de municipios
-   - límites municipales
-   - consulta mediante código DANE
+   - consultar municipios
+   - buscar municipios por nombre
+   - consultar límites municipales
+   - consultar límites mediante código DANE
+   - consultar departamentos
 
 Ejemplos:
+
 - Analiza los predios de Sesquilé
+
 - Dame los destinos principales
+
 - ¿Cuál es el avalúo total?
+
 - Analiza las construcciones de Sesquilé
+
 - Muéstrame el límite de Sesquilé según el IGAC
+
+- Muéstrame el límite de Guatavita
+
+- Consulta el municipio de Chía
+
+- Lista los departamentos disponibles en el IGAC
 """
     }
