@@ -14,6 +14,14 @@ from services.sql_validator import validar_sql_seguro
 from services.response_service import construir_respuesta
 from services.response_intelligence import construir_inteligencia_respuesta
 
+# ============================================================
+# FUENTES EXTERNAS
+# ============================================================
+
+from services.external_sources.igac_service import (
+    resolver_consulta_limites,
+)
+
 from services.result_engine import (
     guardar_resultado as guardar_resultado_engine,
     imprimir_resultado,
@@ -609,6 +617,208 @@ def analizar_pregunta(pregunta: str) -> dict:
         raise ValueError(
             "La pregunta no puede estar vacía."
         )
+
+    # ========================================================
+    # FUENTE EXTERNA IGAC - LÍMITES
+    # ========================================================
+
+    respuesta_igac = resolver_consulta_limites(
+        pregunta
+    )
+
+    if respuesta_igac is not None:
+
+        if not isinstance(
+            respuesta_igac,
+            dict
+        ):
+            raise ValueError(
+                "El servicio IGAC no devolvió una respuesta válida."
+            )
+
+        # ----------------------------------------------------
+        # CONSULTA IGAC SIN RESULTADO O AMBIGUA
+        # ----------------------------------------------------
+
+        if not respuesta_igac.get(
+            "ok",
+            False
+        ):
+
+            respuesta_igac["pregunta"] = pregunta
+            respuesta_igac["seguimiento"] = False
+            respuesta_igac["reutilizado"] = False
+            respuesta_igac["ejecuto_sql"] = False
+
+            respuesta_igac.setdefault(
+                "modo",
+                "datos"
+            )
+
+            respuesta_igac.setdefault(
+                "inteligencia",
+                {
+                    "tipo": "fuente_externa",
+                    "fuente": "IGAC",
+                    "mensaje": respuesta_igac.get(
+                        "mensaje",
+                        "No fue posible resolver la consulta en el IGAC."
+                    )
+                }
+            )
+
+            respuesta_igac["decision_accion"] = {
+                "accion": "fuente_externa_igac",
+                "motivo": (
+                    "La pregunta corresponde a una consulta de "
+                    "límites administrativos en el servicio REST del IGAC."
+                ),
+                "reutilizar_resultado": False,
+                "ejecutar_sql": False,
+                "resultado_disponible": False,
+                "tipo_resultado": respuesta_igac.get("tipo"),
+                "tabla": None,
+                "layer_id": None
+            }
+
+            return respuesta_igac
+
+        # ----------------------------------------------------
+        # CONSULTA IGAC CON GEOJSON
+        # ----------------------------------------------------
+
+        resultado_igac = respuesta_igac.get(
+            "resultado"
+        )
+
+        if not isinstance(
+            resultado_igac,
+            dict
+        ):
+            raise ValueError(
+                "El servicio IGAC no devolvió un GeoJSON válido."
+            )
+
+        if resultado_igac.get(
+            "type"
+        ) != "FeatureCollection":
+            raise ValueError(
+                "El resultado IGAC no corresponde a un FeatureCollection."
+            )
+
+        inteligencia_igac = respuesta_igac.get(
+            "inteligencia"
+        )
+
+        if not isinstance(
+            inteligencia_igac,
+            dict
+        ):
+            inteligencia_igac = {
+                "tipo": "fuente_externa",
+                "fuente": "IGAC",
+                "mensaje": (
+                    "Se obtuvo información geográfica desde "
+                    "el servicio REST del IGAC."
+                )
+            }
+
+        visualizacion_igac = respuesta_igac.get(
+            "visualizacion"
+        )
+
+        if not isinstance(
+            visualizacion_igac,
+            dict
+        ):
+            visualizacion_igac = {
+                "modo": "simple",
+                "campo_categoria": None,
+                "campo_valor": None,
+                "mostrar_leyenda": True,
+                "titulo_leyenda": "Límite IGAC"
+            }
+
+        layer_id_igac = respuesta_igac.get(
+            "layer_id"
+        )
+
+        plan_igac = {
+            "tipo_consulta": "fuente_externa",
+            "fuente": "IGAC",
+            "servicio": "limites",
+            "visualizacion": visualizacion_igac
+        }
+
+        sql_igac = "FUENTE_EXTERNA:IGAC"
+
+        respuesta_igac["pregunta"] = pregunta
+        respuesta_igac["seguimiento"] = False
+        respuesta_igac["plan"] = plan_igac
+        respuesta_igac["visualizacion"] = visualizacion_igac
+        respuesta_igac["inteligencia"] = inteligencia_igac
+        respuesta_igac["reutilizado"] = False
+        respuesta_igac["ejecuto_sql"] = False
+
+        respuesta_igac["decision_accion"] = {
+            "accion": "fuente_externa_igac",
+            "motivo": (
+                "La pregunta corresponde a una consulta de "
+                "límites administrativos en el servicio REST del IGAC."
+            ),
+            "reutilizar_resultado": False,
+            "ejecutar_sql": False,
+            "resultado_disponible": True,
+            "tipo_resultado": "geojson",
+            "tabla": None,
+            "layer_id": layer_id_igac
+        }
+
+        # ----------------------------------------------------
+        # GUARDAR RESULTADO OPERATIVO IGAC
+        # Permite reutilizarlo en preguntas de seguimiento
+        # como: "muéstralo en el mapa".
+        # ----------------------------------------------------
+
+        guardar_resultado_engine(
+            tipo="geojson",
+            tabla=None,
+            layer_id=layer_id_igac,
+            sql=sql_igac,
+            resultado=resultado_igac,
+            memoria={
+                "fuente": "IGAC",
+                "servicio": "limites",
+                "municipio": respuesta_igac.get(
+                    "municipio"
+                ),
+                "departamento": respuesta_igac.get(
+                    "departamento"
+                ),
+                "codigo": respuesta_igac.get(
+                    "codigo"
+                )
+            },
+        )
+
+        imprimir_resultado()
+
+        # ----------------------------------------------------
+        # GUARDAR MEMORIA CONVERSACIONAL IGAC
+        # ----------------------------------------------------
+
+        guardar_memoria(
+            pregunta=pregunta,
+            pregunta_contextualizada=pregunta,
+            plan=plan_igac,
+            sql=sql_igac,
+            respuesta=respuesta_igac,
+            inteligencia=inteligencia_igac,
+        )
+
+        imprimir_resumen_memoria()
+
+        return respuesta_igac
 
     # ========================================================
     # CONSTRUIR CONTEXTO CONVERSACIONAL
