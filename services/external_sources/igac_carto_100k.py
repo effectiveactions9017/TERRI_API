@@ -15,11 +15,15 @@
 # ============================================================
 
 import json
+import time
 import requests
 import unicodedata
 
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
+
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 # ============================================================
@@ -50,9 +54,83 @@ CAPA_MUNICIPIOS = 1
 # CONFIGURACIÓN
 # ============================================================
 
-MAX_REGISTROS_POR_PAGINA = 2000
+MAX_REGISTROS_POR_PAGINA = 1000
 
-TIMEOUT_IGAC = 40
+TIMEOUT_IGAC = 45
+
+MAX_REINTENTOS_IGAC = 3
+
+PAUSA_REINTENTO_SEGUNDOS = 1.5
+
+
+# ============================================================
+# SESIÓN HTTP ROBUSTA
+# ============================================================
+
+def crear_sesion_igac() -> requests.Session:
+
+    sesion = requests.Session()
+
+    reintentos = Retry(
+        total=MAX_REINTENTOS_IGAC,
+        connect=MAX_REINTENTOS_IGAC,
+        read=MAX_REINTENTOS_IGAC,
+        status=MAX_REINTENTOS_IGAC,
+        backoff_factor=1.0,
+        status_forcelist=[
+            429,
+            500,
+            502,
+            503,
+            504
+        ],
+        allowed_methods=[
+            "GET"
+        ],
+        raise_on_status=False
+    )
+
+    adaptador = HTTPAdapter(
+        max_retries=reintentos,
+        pool_connections=10,
+        pool_maxsize=10
+    )
+
+    sesion.mount(
+        "https://",
+        adaptador
+    )
+
+    sesion.mount(
+        "http://",
+        adaptador
+    )
+
+    sesion.headers.update(
+        {
+            "User-Agent": (
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/120.0 Safari/537.36 "
+                "TERRI+/1.0"
+            ),
+            "Accept": (
+                "application/json,"
+                "text/plain,*/*"
+            ),
+            "Accept-Language": (
+                "es-CO,es;q=0.9,en;q=0.8"
+            ),
+            "Connection": "keep-alive"
+        }
+    )
+
+    return sesion
+
+
+SESION_IGAC = crear_sesion_igac()
 
 
 # ============================================================
@@ -93,51 +171,108 @@ def consultar_rest_igac(
     timeout: int = TIMEOUT_IGAC
 ) -> Dict[str, Any]:
 
-    respuesta = requests.get(
-        url,
-        params=parametros,
-        timeout=timeout
-    )
+    ultimo_error = None
 
-    respuesta.raise_for_status()
-
-    datos = respuesta.json()
-
-    if (
-        isinstance(datos, dict)
-        and datos.get("error")
+    for intento in range(
+        1,
+        MAX_REINTENTOS_IGAC + 1
     ):
 
-        error = datos.get(
-            "error",
-            {}
-        )
+        try:
 
-        mensaje = (
-            error.get("message")
-            or
-            "El servicio REST del IGAC devolvió un error."
-        )
-
-        detalles = error.get(
-            "details"
-        )
-
-        if detalles:
-
-            mensaje += (
-                " "
-                + " ".join(
-                    str(detalle)
-                    for detalle in detalles
-                )
+            respuesta = SESION_IGAC.get(
+                url,
+                params=parametros,
+                timeout=timeout
             )
 
-        raise RuntimeError(
-            mensaje
-        )
+            respuesta.raise_for_status()
 
-    return datos
+            datos = respuesta.json()
+
+            if (
+                isinstance(datos, dict)
+                and datos.get("error")
+            ):
+
+                error = datos.get(
+                    "error",
+                    {}
+                )
+
+                mensaje = (
+                    error.get("message")
+                    or
+                    "El servicio REST del IGAC devolvió un error."
+                )
+
+                detalles = error.get(
+                    "details"
+                )
+
+                if detalles:
+
+                    mensaje += (
+                        " "
+                        + " ".join(
+                            str(detalle)
+                            for detalle in detalles
+                        )
+                    )
+
+                raise RuntimeError(
+                    mensaje
+                )
+
+            return datos
+
+        except (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ContentDecodingError
+        ) as error:
+
+            ultimo_error = error
+
+            if intento < MAX_REINTENTOS_IGAC:
+
+                time.sleep(
+                    PAUSA_REINTENTO_SEGUNDOS
+                    * intento
+                )
+
+                continue
+
+            break
+
+        except requests.exceptions.HTTPError as error:
+
+            ultimo_error = error
+
+            if intento < MAX_REINTENTOS_IGAC:
+
+                time.sleep(
+                    PAUSA_REINTENTO_SEGUNDOS
+                    * intento
+                )
+
+                continue
+
+            break
+
+        except ValueError as error:
+
+            raise RuntimeError(
+                "El servicio IGAC respondió, "
+                "pero no devolvió JSON válido."
+            ) from error
+
+    raise RuntimeError(
+        "No fue posible consultar temporalmente "
+        "el servicio REST del IGAC. "
+        f"Detalle técnico: {ultimo_error}"
+    )
 
 
 # ============================================================
@@ -471,7 +606,8 @@ def consultar_vias_geometria(
             "where": "1=1",
 
             "geometry": json.dumps(
-                geometria_arcgis
+                geometria_arcgis,
+                separators=(",", ":")
             ),
 
             "geometryType": (
@@ -532,10 +668,6 @@ def consultar_vias_geometria(
 
         pagina += 1
 
-        # ----------------------------------------------------
-        # PROTECCIÓN CONTRA CICLOS INFINITOS
-        # ----------------------------------------------------
-
         if pagina > 100:
 
             raise RuntimeError(
@@ -560,121 +692,173 @@ def consultar_vias_municipio_codigo(
         codigo
     ).strip()
 
-    limite = obtener_limite_municipal(
-        codigo
-    )
+    try:
 
-    features_limite = limite.get(
-        "features",
-        []
-    )
-
-    if not features_limite:
-
-        return {
-            "ok": False,
-            "tipo": "sin_resultado",
-            "fuente": "IGAC",
-            "servicio": "cartografia_100k",
-            "mensaje": (
-                f"No se encontró un límite municipal "
-                f"para el código {codigo}."
-            )
-        }
-
-    propiedades = (
-        features_limite[0].get(
-            "properties",
-            {}
+        limite = obtener_limite_municipal(
+            codigo
         )
-    )
 
-    municipio = (
-        propiedades.get(
-            "MpNombre"
-        )
-    )
-
-    departamento = (
-        propiedades.get(
-            "Depto"
-        )
-    )
-
-    geometria_arcgis = (
-        convertir_geojson_a_arcgis_polygon(
-            limite
-        )
-    )
-
-    vias = consultar_vias_geometria(
-        geometria_arcgis
-    )
-
-    total = len(
-        vias.get(
+        features_limite = limite.get(
             "features",
             []
         )
-    )
 
-    return {
-        "ok": True,
+        if not features_limite:
 
-        "tipo": "geojson",
+            return {
+                "ok": False,
+                "tipo": "sin_resultado",
+                "modo": "datos",
+                "fuente": "IGAC",
+                "servicio": "cartografia_100k",
+                "tema": "vias",
+                "mensaje": (
+                    f"No se encontró un límite municipal "
+                    f"para el código {codigo}."
+                ),
+                "ejecuto_sql": False,
+                "reutilizado": False
+            }
 
-        "modo": "mapa",
-
-        "fuente": "IGAC",
-
-        "servicio": (
-            "Cartografía básica 1:100.000"
-        ),
-
-        "tema": "vias",
-
-        "municipio": municipio,
-
-        "departamento": departamento,
-
-        "codigo": codigo,
-
-        "total_features": total,
-
-        "resultado": vias,
-
-        "layer_id": (
-            "igac_carto100k_vias_"
-            + codigo
-        ),
-
-        "visualizacion": {
-            "modo": "simple",
-            "mostrar_leyenda": True,
-            "titulo_leyenda": (
-                f"Vías de {municipio}"
-                if municipio
-                else "Vías IGAC"
+        propiedades = (
+            features_limite[0].get(
+                "properties",
+                {}
             )
-        },
+        )
 
-        "inteligencia": {
-            "tipo": "fuente_externa",
+        municipio = (
+            propiedades.get(
+                "MpNombre"
+            )
+        )
+
+        departamento = (
+            propiedades.get(
+                "Depto"
+            )
+        )
+
+        geometria_arcgis = (
+            convertir_geojson_a_arcgis_polygon(
+                limite
+            )
+        )
+
+        vias = consultar_vias_geometria(
+            geometria_arcgis
+        )
+
+        total = len(
+            vias.get(
+                "features",
+                []
+            )
+        )
+
+        if total == 0:
+
+            return {
+                "ok": False,
+                "tipo": "sin_resultado",
+                "modo": "datos",
+                "fuente": "IGAC",
+                "servicio": (
+                    "Cartografía básica 1:100.000"
+                ),
+                "tema": "vias",
+                "municipio": municipio,
+                "departamento": departamento,
+                "codigo": codigo,
+                "mensaje": (
+                    f"El IGAC no devolvió elementos viales "
+                    f"para {municipio or 'el municipio'} "
+                    f"en la cartografía básica 1:100.000."
+                ),
+                "ejecuto_sql": False,
+                "reutilizado": False
+            }
+
+        return {
+            "ok": True,
+
+            "tipo": "geojson",
+
+            "modo": "mapa",
+
             "fuente": "IGAC",
+
+            "servicio": (
+                "Cartografía básica 1:100.000"
+            ),
+
             "tema": "vias",
+
+            "municipio": municipio,
+
+            "departamento": departamento,
+
+            "codigo": codigo,
+
+            "total_features": total,
+
+            "resultado": vias,
+
+            "layer_id": (
+                "igac_carto100k_vias_"
+                + codigo
+            ),
+
+            "visualizacion": {
+                "modo": "simple",
+                "mostrar_leyenda": True,
+                "titulo_leyenda": (
+                    f"Vías de {municipio}"
+                    if municipio
+                    else "Vías IGAC"
+                )
+            },
+
+            "inteligencia": {
+                "tipo": "fuente_externa",
+                "fuente": "IGAC",
+                "tema": "vias",
+                "mensaje": (
+                    f"Se consultaron "
+                    f"{total} elementos viales "
+                    f"de {municipio or 'el municipio'} "
+                    f"en la cartografía básica "
+                    f"1:100.000 del IGAC."
+                )
+            },
+
+            "ejecuto_sql": False,
+
+            "reutilizado": False
+        }
+
+    except Exception as error:
+
+        return {
+            "ok": False,
+            "tipo": "error_fuente_externa",
+            "modo": "datos",
+            "fuente": "IGAC",
+            "servicio": (
+                "Cartografía básica 1:100.000"
+            ),
+            "tema": "vias",
+            "codigo": codigo,
             "mensaje": (
-                f"Se consultaron "
-                f"{total} elementos viales "
-                f"de {municipio or 'el municipio'} "
-                f"en la cartografía básica "
-                f"1:100.000 del IGAC."
-            )
-        },
-
-        "ejecuto_sql": False,
-
-        "reutilizado": False
-    }
+                "El servicio cartográfico del IGAC "
+                "no respondió correctamente en este momento. "
+                "TERRI+ sigue disponible; puedes intentar "
+                "nuevamente en unos segundos."
+            ),
+            "detalle_tecnico": str(error),
+            "ejecuto_sql": False,
+            "reutilizado": False
+        }
 
 
 # ============================================================
