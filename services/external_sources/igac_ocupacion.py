@@ -18,9 +18,13 @@ from services.external_sources.igac_carto_100k import (
 )
 
 
+# IMPORTANTE:
+# Se usa MapServer y no FeatureServer porque el MapServer
+# declara soporte para consultas GeoJSON. El FeatureServer
+# de este servicio publica consultas JSON, pero no GeoJSON.
 IGAC_OCUPACION_BASE = (
     "https://mapas2.igac.gov.co/server/rest/services/"
-    "ordenamiento/componenteocupacion/FeatureServer"
+    "ordenamiento/componenteocupacion/MapServer"
 )
 
 CAPAS_OCUPACION = {
