@@ -7,14 +7,12 @@
 # - Cabeceras municipales
 # ============================================================
 
-import json
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 from services.external_sources.igac_carto_100k import (
     buscar_municipio_igac,
     consultar_rest_igac,
     obtener_limite_municipal,
-    convertir_geojson_a_arcgis_polygon,
 )
 
 
@@ -108,12 +106,6 @@ def consultar_ocupacion_municipio_codigo(
             "Depto"
         )
 
-        geometria_arcgis = (
-            convertir_geojson_a_arcgis_polygon(
-                limite
-            )
-        )
-
         layer_id = configuracion["id"]
 
         url = (
@@ -121,15 +113,21 @@ def consultar_ocupacion_municipio_codigo(
             f"{layer_id}/query"
         )
 
+        # ====================================================
+        # FILTRO DIRECTO POR CÓDIGO MUNICIPAL
+        # ====================================================
+        #
+        # Las capas 3 y 4 del servicio Componente Ocupación
+        # ya incluyen el campo mpcodigo. Por eso no necesitamos
+        # enviar el polígono municipal completo ni hacer una
+        # intersección espacial. Esta consulta es más simple,
+        # más rápida y más estable.
+        # ====================================================
+
         parametros = {
-            "where": "1=1",
-            "geometry": json.dumps(
-                geometria_arcgis,
-                separators=(",", ":"),
+            "where": (
+                f"mpcodigo='{codigo}'"
             ),
-            "geometryType": "esriGeometryPolygon",
-            "inSR": "4326",
-            "spatialRel": "esriSpatialRelIntersects",
             "outFields": "*",
             "returnGeometry": "true",
             "outSR": "4326",
@@ -139,7 +137,7 @@ def consultar_ocupacion_municipio_codigo(
         resultado = consultar_rest_igac(
             url,
             parametros,
-            metodo="post",
+            metodo="get",
         )
 
         features = resultado.get(
