@@ -3,23 +3,11 @@
 # IGAC ROUTER
 #
 # Orquestador general de consultas a servicios oficiales IGAC.
-#
-# Decide qué módulo debe resolver una pregunta:
-#
-# - Límites administrativos
-# - Cartografía básica 1:100.000
-# - Futuras fuentes IGAC
 # ============================================================
 
-import re
 import unicodedata
 
 from typing import Any, Dict, Optional
-
-
-# ============================================================
-# LÍMITES
-# ============================================================
 
 from services.external_sources.igac_service import (
     resolver_consulta_limites,
@@ -27,22 +15,17 @@ from services.external_sources.igac_service import (
     detectar_departamento_en_pregunta,
 )
 
-
-# ============================================================
-# CARTOGRAFÍA 1:100.000
-# ============================================================
-
 from services.external_sources.igac_carto_100k import (
-    consultar_vias_municipio,
+    consultar_tema_municipio,
+)
+
+from services.external_sources.igac_ocupacion import (
+    consultar_ocupacion_municipio,
 )
 
 
-# ============================================================
-# NORMALIZAR TEXTO
-# ============================================================
-
 def normalizar_texto_router(
-    valor: Any
+    valor: Any,
 ) -> str:
 
     texto = str(
@@ -51,211 +34,412 @@ def normalizar_texto_router(
 
     texto = unicodedata.normalize(
         "NFD",
-        texto
+        texto,
     )
 
-    texto = "".join(
+    return "".join(
         caracter
         for caracter in texto
-        if unicodedata.category(
-            caracter
-        ) != "Mn"
+        if unicodedata.category(caracter) != "Mn"
     )
 
-    return texto
-
 
 # ============================================================
-# DETECTAR CONSULTA DE VÍAS
+# CATÁLOGO DE INTENCIONES
 # ============================================================
 
-def es_consulta_vias(
-    pregunta: str
-) -> bool:
+INTENCIONES_CARTO = [
+
+    (
+        "cuerpos_agua",
+        [
+            "cuerpos de agua",
+            "cuerpo de agua",
+            "aguas superficiales",
+        ],
+    ),
+
+    (
+        "rios",
+        [
+            "rio",
+            "rios",
+            "quebrada",
+            "quebradas",
+            "drenaje",
+            "drenajes",
+            "hidrografia",
+            "corrientes de agua",
+            "corriente de agua",
+        ],
+    ),
+
+    (
+        "canales",
+        [
+            "canal",
+            "canales",
+        ],
+    ),
+
+    (
+        "lagunas",
+        [
+            "laguna",
+            "lagunas",
+        ],
+    ),
+
+    (
+        "humedales",
+        [
+            "humedal",
+            "humedales",
+        ],
+    ),
+
+    (
+        "embalses",
+        [
+            "embalse",
+            "embalses",
+        ],
+    ),
+
+    (
+        "cienagas",
+        [
+            "cienaga",
+            "cienagas",
+        ],
+    ),
+
+    (
+        "pantanos",
+        [
+            "pantano",
+            "pantanos",
+        ],
+    ),
+
+    (
+        "jagueyes",
+        [
+            "jaguey",
+            "jagueyes",
+        ],
+    ),
+
+    (
+        "madreviejas",
+        [
+            "madrevieja",
+            "madreviejas",
+        ],
+    ),
+
+    (
+        "morichales",
+        [
+            "morichal",
+            "morichales",
+        ],
+    ),
+
+    (
+        "manglares",
+        [
+            "manglar",
+            "manglares",
+        ],
+    ),
+
+    (
+        "puentes",
+        [
+            "puente",
+            "puentes",
+        ],
+    ),
+
+    (
+        "via_ferrea",
+        [
+            "via ferrea",
+            "vias ferreas",
+            "ferrocarril",
+            "ferrocarriles",
+        ],
+    ),
+
+    (
+        "tuneles",
+        [
+            "tunel",
+            "tuneles",
+        ],
+    ),
+
+    (
+        "red_alta_tension",
+        [
+            "alta tension",
+            "red electrica",
+            "redes electricas",
+            "lineas electricas",
+        ],
+    ),
+
+    (
+        "bosques",
+        [
+            "bosque",
+            "bosques",
+        ],
+    ),
+
+    (
+        "orografia",
+        [
+            "orografia",
+            "relieve",
+        ],
+    ),
+
+    (
+        "aeropuertos",
+        [
+            "aeropuerto",
+            "aeropuertos",
+            "pista de aterrizaje",
+            "pistas de aterrizaje",
+        ],
+    ),
+
+    (
+        "puertos",
+        [
+            "puerto",
+            "puertos",
+            "muelle",
+            "muelles",
+            "embarcadero",
+            "embarcaderos",
+        ],
+    ),
+
+    (
+        "vias",
+        [
+            "via",
+            "vias",
+            "carretera",
+            "carreteras",
+            "camino",
+            "caminos",
+            "sendero",
+            "senderos",
+            "red vial",
+            "malla vial",
+            "eje vial",
+            "ejes viales",
+            "infraestructura vial",
+        ],
+    ),
+]
+
+
+INTENCIONES_OCUPACION = [
+
+    (
+        "centros_poblados",
+        [
+            "centro poblado",
+            "centros poblados",
+            "poblados",
+            "asentamientos",
+        ],
+    ),
+
+    (
+        "cabeceras",
+        [
+            "cabecera municipal",
+            "cabeceras municipales",
+            "cabecera",
+            "cabeceras",
+            "area urbana",
+            "areas urbanas",
+        ],
+    ),
+]
+
+
+def detectar_intencion(
+    pregunta: str,
+    catalogo,
+) -> Optional[str]:
 
     texto = normalizar_texto_router(
         pregunta
     )
 
-    palabras_vias = [
-        "via",
-        "vias",
-        "carretera",
-        "carreteras",
-        "camino",
-        "caminos",
-        "sendero",
-        "senderos",
-        "red vial",
-        "malla vial",
-        "eje vial",
-        "ejes viales",
-        "infraestructura vial"
-    ]
+    for tema, expresiones in catalogo:
 
-    return any(
-        palabra in texto
-        for palabra in palabras_vias
-    )
+        for expresion in expresiones:
 
-
-# ============================================================
-# RESOLVER MUNICIPIO PARA CARTOGRAFÍA
-# ============================================================
-
-def resolver_municipio_cartografia(
-    pregunta: str
-) -> Optional[Dict[str, Any]]:
-
-    municipio = (
-        detectar_municipio_en_pregunta(
-            pregunta
-        )
-    )
-
-    if municipio:
-
-        return municipio
+            if expresion in texto:
+                return tema
 
     return None
 
 
-# ============================================================
-# RESOLVER CONSULTA DE VÍAS
-# ============================================================
-
-def resolver_consulta_vias(
-    pregunta: str
+def obtener_municipio_pregunta(
+    pregunta: str,
 ) -> Optional[Dict[str, Any]]:
 
-    if not es_consulta_vias(
+    return detectar_municipio_en_pregunta(
         pregunta
-    ):
-
-        return None
+    )
 
 
-    municipio = (
-        resolver_municipio_cartografia(
+def respuesta_sin_municipio(
+    tema: str,
+    pregunta: str,
+) -> Dict[str, Any]:
+
+    departamento = (
+        detectar_departamento_en_pregunta(
             pregunta
         )
     )
 
-
-    if not municipio:
-
-        departamento = (
-            detectar_departamento_en_pregunta(
-                pregunta
-            )
-        )
-
-        if departamento:
-
-            return {
-                "ok": False,
-                "tipo": "sin_resultado",
-                "modo": "datos",
-                "fuente": "IGAC",
-                "tema": "vias",
-                "mensaje": (
-                    "Entendí que deseas consultar vías del IGAC, "
-                    "pero por ahora esta primera versión consulta "
-                    "las vías por municipio. "
-                    f"Identifiqué el departamento "
-                    f"'{departamento.get('departamento')}', "
-                    "pero necesito que indiques un municipio."
-                ),
-                "ejecuto_sql": False,
-                "reutilizado": False
-            }
-
+    if departamento:
 
         return {
             "ok": False,
             "tipo": "sin_resultado",
             "modo": "datos",
             "fuente": "IGAC",
-            "tema": "vias",
+            "tema": tema,
             "mensaje": (
-                "Entendí que deseas consultar vías del IGAC, "
-                "pero no pude identificar el municipio."
+                "Identifiqué el departamento "
+                f"'{departamento.get('departamento')}', "
+                "pero esta consulta cartográfica se realiza "
+                "por municipio. Indica también el municipio."
             ),
             "ejecuto_sql": False,
-            "reutilizado": False
+            "reutilizado": False,
         }
 
+    return {
+        "ok": False,
+        "tipo": "sin_resultado",
+        "modo": "datos",
+        "fuente": "IGAC",
+        "tema": tema,
+        "mensaje": (
+            "Entendí la capa que deseas consultar, "
+            "pero no pude identificar el municipio."
+        ),
+        "ejecuto_sql": False,
+        "reutilizado": False,
+    }
 
-    nombre_municipio = (
-        municipio.get(
-            "municipio"
+
+def resolver_tema_cartografia(
+    pregunta: str,
+    tema: str,
+) -> Dict[str, Any]:
+
+    municipio = obtener_municipio_pregunta(
+        pregunta
+    )
+
+    if not municipio:
+
+        return respuesta_sin_municipio(
+            tema,
+            pregunta,
         )
+
+    return consultar_tema_municipio(
+        tema=tema,
+        nombre=municipio.get("municipio"),
+        departamento=municipio.get("departamento"),
     )
 
-    departamento = (
-        municipio.get(
-            "departamento"
+
+def resolver_tema_ocupacion(
+    pregunta: str,
+    tema: str,
+) -> Dict[str, Any]:
+
+    municipio = obtener_municipio_pregunta(
+        pregunta
+    )
+
+    if not municipio:
+
+        return respuesta_sin_municipio(
+            tema,
+            pregunta,
         )
+
+    return consultar_ocupacion_municipio(
+        tema=tema,
+        nombre=municipio.get("municipio"),
+        departamento=municipio.get("departamento"),
     )
 
-
-    return consultar_vias_municipio(
-        nombre=nombre_municipio,
-        departamento=departamento
-    )
-
-
-# ============================================================
-# RESOLVER CONSULTA GENERAL IGAC
-# ============================================================
 
 def resolver_consulta_igac(
-    pregunta: str
+    pregunta: str,
 ) -> Optional[Dict[str, Any]]:
 
-    if not isinstance(
-        pregunta,
-        str
-    ):
-
+    if not isinstance(pregunta, str):
         return None
-
 
     pregunta = pregunta.strip()
 
-
     if not pregunta:
-
         return None
 
+    # --------------------------------------------------------
+    # 1. CENTROS POBLADOS Y CABECERAS
+    # --------------------------------------------------------
 
-    # ========================================================
-    # 1. VÍAS
-    # ========================================================
-    #
-    # Se evalúan antes que los límites porque una pregunta como:
-    #
-    # "Muéstrame las vías de Sesquilé según el IGAC"
-    #
-    # contiene la palabra IGAC y el resolver antiguo de límites
-    # podría interpretarla erróneamente como una consulta de límite.
-    # ========================================================
-
-    respuesta_vias = (
-        resolver_consulta_vias(
-            pregunta
-        )
+    tema_ocupacion = detectar_intencion(
+        pregunta,
+        INTENCIONES_OCUPACION,
     )
 
+    if tema_ocupacion:
 
-    if respuesta_vias is not None:
+        return resolver_tema_ocupacion(
+            pregunta,
+            tema_ocupacion,
+        )
 
-        return respuesta_vias
+    # --------------------------------------------------------
+    # 2. CARTOGRAFÍA BÁSICA
+    # --------------------------------------------------------
 
+    tema_carto = detectar_intencion(
+        pregunta,
+        INTENCIONES_CARTO,
+    )
 
-    # ========================================================
-    # 2. LÍMITES ADMINISTRATIVOS
-    # ========================================================
+    if tema_carto:
+
+        return resolver_tema_cartografia(
+            pregunta,
+            tema_carto,
+        )
+
+    # --------------------------------------------------------
+    # 3. LÍMITES ADMINISTRATIVOS
+    # --------------------------------------------------------
 
     respuesta_limites = (
         resolver_consulta_limites(
@@ -263,31 +447,7 @@ def resolver_consulta_igac(
         )
     )
 
-
     if respuesta_limites is not None:
-
         return respuesta_limites
-
-
-    # ========================================================
-    # 3. FUTURAS CAPAS IGAC
-    # ========================================================
-    #
-    # Próximamente podremos agregar aquí:
-    #
-    # - ríos
-    # - drenajes
-    # - canales
-    # - lagunas
-    # - embalses
-    # - humedales
-    # - pantanos
-    # - puentes
-    # - centros poblados
-    # - cabeceras
-    # - cuencas
-    #
-    # sin modificar analysis_service.py.
-    # ========================================================
 
     return None
