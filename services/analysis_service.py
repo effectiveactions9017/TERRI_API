@@ -18,8 +18,8 @@ from services.response_intelligence import construir_inteligencia_respuesta
 # FUENTES EXTERNAS
 # ============================================================
 
-from services.external_sources.igac_service import (
-    resolver_consulta_limites,
+from services.external_sources.igac_router import (
+    resolver_consulta_igac,
 )
 
 from services.result_engine import (
@@ -622,7 +622,7 @@ def analizar_pregunta(pregunta: str) -> dict:
     # FUENTE EXTERNA IGAC - LÍMITES
     # ========================================================
 
-    respuesta_igac = resolver_consulta_limites(
+    respuesta_igac = resolver_consulta_igac(
         pregunta
     )
 
@@ -671,7 +671,7 @@ def analizar_pregunta(pregunta: str) -> dict:
                 "accion": "fuente_externa_igac",
                 "motivo": (
                     "La pregunta corresponde a una consulta de "
-                    "límites administrativos en el servicio REST del IGAC."
+                    "información geográfica en servicios oficiales del IGAC."
                 ),
                 "reutilizar_resultado": False,
                 "ejecutar_sql": False,
@@ -743,14 +743,28 @@ def analizar_pregunta(pregunta: str) -> dict:
             "layer_id"
         )
 
+        servicio_igac = (
+            respuesta_igac.get("servicio")
+            or "IGAC"
+        )
+
+        tema_igac = (
+            respuesta_igac.get("tema")
+            or "limites"
+        )
+
         plan_igac = {
             "tipo_consulta": "fuente_externa",
             "fuente": "IGAC",
-            "servicio": "limites",
+            "servicio": servicio_igac,
+            "tema": tema_igac,
             "visualizacion": visualizacion_igac
         }
 
-        sql_igac = "FUENTE_EXTERNA:IGAC"
+        sql_igac = (
+            "FUENTE_EXTERNA:IGAC:"
+            + str(tema_igac).upper()
+        )
 
         respuesta_igac["pregunta"] = pregunta
         respuesta_igac["seguimiento"] = False
@@ -764,7 +778,7 @@ def analizar_pregunta(pregunta: str) -> dict:
             "accion": "fuente_externa_igac",
             "motivo": (
                 "La pregunta corresponde a una consulta de "
-                "límites administrativos en el servicio REST del IGAC."
+                "información geográfica en servicios oficiales del IGAC."
             ),
             "reutilizar_resultado": False,
             "ejecutar_sql": False,
@@ -788,7 +802,8 @@ def analizar_pregunta(pregunta: str) -> dict:
             resultado=resultado_igac,
             memoria={
                 "fuente": "IGAC",
-                "servicio": "limites",
+                "servicio": servicio_igac,
+                "tema": tema_igac,
                 "municipio": respuesta_igac.get(
                     "municipio"
                 ),
