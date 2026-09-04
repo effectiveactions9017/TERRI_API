@@ -168,7 +168,8 @@ def normalizar_texto(
 def consultar_rest_igac(
     url: str,
     parametros: Dict[str, Any],
-    timeout: int = TIMEOUT_IGAC
+    timeout: int = TIMEOUT_IGAC,
+    metodo: str = "get"
 ) -> Dict[str, Any]:
 
     ultimo_error = None
@@ -180,11 +181,25 @@ def consultar_rest_igac(
 
         try:
 
-            respuesta = SESION_IGAC.get(
-                url,
-                params=parametros,
-                timeout=timeout
-            )
+            metodo_normalizado = str(
+                metodo or "get"
+            ).strip().lower()
+
+            if metodo_normalizado == "post":
+
+                respuesta = SESION_IGAC.post(
+                    url,
+                    data=parametros,
+                    timeout=timeout
+                )
+
+            else:
+
+                respuesta = SESION_IGAC.get(
+                    url,
+                    params=parametros,
+                    timeout=timeout
+                )
 
             respuesta.raise_for_status()
 
@@ -605,6 +620,9 @@ def consultar_vias_geometria(
         parametros = {
             "where": "1=1",
 
+            # La geometría municipal puede contener cientos o miles
+            # de vértices. Esta consulta se envía por POST para evitar
+            # URLs excesivamente largas y cierres de conexión del servidor.
             "geometry": json.dumps(
                 geometria_arcgis,
                 separators=(",", ":")
@@ -648,7 +666,8 @@ def consultar_vias_geometria(
 
         datos = consultar_rest_igac(
             url,
-            parametros
+            parametros,
+            metodo="post"
         )
 
         colecciones.append(
