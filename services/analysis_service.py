@@ -98,6 +98,89 @@ def detectar_tabla(sql: str) -> Optional[str]:
 
 
 # ============================================================
+# CONSTRUIR NOMBRE LEGIBLE DE CAPA
+# ============================================================
+
+def construir_nombre_capa(
+    pregunta: str,
+    tabla: Optional[str],
+    plan: Optional[dict] = None,
+) -> Optional[str]:
+    """
+    Construye un nombre legible para las capas generadas
+    desde PostgreSQL/PostGIS.
+    """
+
+    if not tabla:
+        return None
+
+    pregunta_normalizada = (
+        str(pregunta or "")
+        .strip()
+        .lower()
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("á", "a")
+        .replace("ú", "u")
+        .replace("ñ", "n")
+    )
+
+    if tabla == "predios_sesquile":
+        nombre = "Predios"
+
+        if "public" in pregunta_normalizada:
+            nombre = "Predios públicos"
+        elif "privad" in pregunta_normalizada:
+            nombre = "Predios privados"
+        elif "residencial" in pregunta_normalizada:
+            nombre = "Predios residenciales"
+        elif "industrial" in pregunta_normalizada:
+            nombre = "Predios industriales"
+        elif "comercial" in pregunta_normalizada:
+            nombre = "Predios comerciales"
+        elif "rural" in pregunta_normalizada:
+            nombre = "Predios rurales"
+        elif "urbano" in pregunta_normalizada:
+            nombre = "Predios urbanos"
+        elif (
+            "mora" in pregunta_normalizada
+            or "cartera" in pregunta_normalizada
+        ):
+            nombre = "Predios en mora"
+        elif "proteccion" in pregunta_normalizada:
+            nombre = "Predios de protección"
+        elif "dotacional" in pregunta_normalizada:
+            nombre = "Predios dotacionales"
+        elif "agricol" in pregunta_normalizada:
+            nombre = "Predios agrícolas"
+
+        return f"{nombre} — Sesquilé"
+
+    if tabla == "construcciones_sesquile":
+        return "Construcciones — Sesquilé"
+
+    if tabla == "contribuyentes_ica_sesquile":
+        return "Contribuyentes ICA — Sesquilé"
+
+    if tabla == "destino_economico_sesquile":
+        return "Destino económico — Sesquilé"
+
+    if tabla == "placa_huellas_sesquile":
+        return "Placa huellas — Sesquilé"
+
+    nombre_tabla = (
+        tabla
+        .replace("_sesquile", "")
+        .replace("_", " ")
+        .strip()
+        .title()
+    )
+
+    return f"{nombre_tabla} — Sesquilé"
+
+
+# ============================================================
 # DETECTAR PREGUNTA DE SEGUIMIENTO
 # ============================================================
 
@@ -1107,7 +1190,17 @@ def analizar_pregunta(pregunta: str) -> dict:
     tabla_detectada = detectar_tabla(sql)
 
     if tabla_detectada is not None:
+
         respuesta["tabla"] = tabla_detectada
+
+        nombre_capa = construir_nombre_capa(
+            pregunta=pregunta,
+            tabla=tabla_detectada,
+            plan=plan,
+        )
+
+        if nombre_capa:
+            respuesta["nombre"] = nombre_capa
 
     print(
         "\n"
