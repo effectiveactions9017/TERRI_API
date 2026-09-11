@@ -55,6 +55,10 @@ app.include_router(
     ia.router
 )
 
+app.include_router(
+    tributario.router
+)
+
 
 # ============================================================
 # INICIO
