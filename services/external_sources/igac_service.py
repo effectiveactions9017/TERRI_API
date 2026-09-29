@@ -54,25 +54,27 @@ def normalizar_texto(valor: Any) -> str:
 
 
 # ============================================================
-# CONSTRUIR ERROR CONTROLADO IGAC
+# CONSTRUIR ERROR CONTROLADO DEL IGAC
 # ============================================================
 
 def construir_error_igac(
     mensaje: str,
-    tipo: str
+    tipo_error: str
 ) -> Dict[str, Any]:
 
     return {
         "_terri_error": True,
         "ok": False,
-        "tipo": tipo,
+        "tipo": "error_fuente_externa",
+        "modo": "datos",
         "fuente": "IGAC",
+        "tipo_error": tipo_error,
         "mensaje": mensaje
     }
 
 
 # ============================================================
-# DETECTAR ERROR CONTROLADO IGAC
+# DETECTAR ERROR CONTROLADO DEL IGAC
 # ============================================================
 
 def es_error_igac(
@@ -416,17 +418,22 @@ def consultar_limite_municipio(
     )
 
     # --------------------------------------------------------
-    # PROPAGAR ERROR DEL SERVICIO
+    # ERROR REAL DEL SERVICIO
     # --------------------------------------------------------
 
     if es_error_igac(coincidencias):
         return coincidencias
+
+    # --------------------------------------------------------
+    # MUNICIPIO NO ENCONTRADO
+    # --------------------------------------------------------
 
     if not coincidencias:
 
         return {
             "ok": False,
             "tipo": "sin_resultado",
+            "modo": "datos",
             "fuente": "IGAC",
             "mensaje": (
                 f"No se encontró el municipio "
@@ -434,11 +441,16 @@ def consultar_limite_municipio(
             )
         }
 
+    # --------------------------------------------------------
+    # MUNICIPIO AMBIGUO
+    # --------------------------------------------------------
+
     if len(coincidencias) > 1:
 
         return {
             "ok": False,
             "tipo": "ambiguo",
+            "modo": "datos",
             "fuente": "IGAC",
             "mensaje": (
                 f"Se encontraron varios municipios "
@@ -461,7 +473,7 @@ def consultar_limite_municipio(
     )
 
     # --------------------------------------------------------
-    # PROPAGAR TIMEOUT / ERROR DE CONEXIÓN
+    # ERROR AL OBTENER GEOMETRÍA
     # --------------------------------------------------------
 
     if es_error_igac(geojson):
@@ -477,6 +489,7 @@ def consultar_limite_municipio(
         return {
             "ok": False,
             "tipo": "sin_geometria",
+            "modo": "datos",
             "fuente": "IGAC",
             "mensaje": (
                 "El municipio fue encontrado, "
@@ -511,6 +524,8 @@ def consultar_limite_municipio(
 
         "visualizacion": {
             "modo": "simple",
+            "campo_categoria": None,
+            "campo_valor": None,
             "mostrar_leyenda": True,
             "titulo_leyenda": (
                 f"Límite de {nombre_municipio}"
@@ -688,6 +703,7 @@ def consultar_limite_departamento(
         return {
             "ok": False,
             "tipo": "sin_resultado",
+            "modo": "datos",
             "fuente": "IGAC",
             "mensaje": (
                 f"No se encontró el departamento "
@@ -720,6 +736,7 @@ def consultar_limite_departamento(
         return {
             "ok": False,
             "tipo": "sin_geometria",
+            "modo": "datos",
             "fuente": "IGAC",
             "mensaje": (
                 "El departamento fue encontrado, "
@@ -749,6 +766,8 @@ def consultar_limite_departamento(
 
         "visualizacion": {
             "modo": "simple",
+            "campo_categoria": None,
+            "campo_valor": None,
             "mostrar_leyenda": True,
             "titulo_leyenda": (
                 f"Límite de {nombre_departamento}"
@@ -768,9 +787,7 @@ def consultar_limite_departamento(
         "ejecuto_sql": False,
         "reutilizado": False
     }
-
-
-# ============================================================
+    # ============================================================
 # DETECTAR CONSULTA DE LÍMITES IGAC
 # ============================================================
 
@@ -817,6 +834,10 @@ def detectar_municipio_en_pregunta(
     )
 
     municipios = listar_municipios()
+
+    # --------------------------------------------------------
+    # PROPAGAR ERROR REAL DEL SERVICIO IGAC
+    # --------------------------------------------------------
 
     if es_error_igac(municipios):
         return municipios
@@ -888,9 +909,191 @@ def detectar_departamento_en_pregunta(
         listar_departamentos()
     )
 
+    # --------------------------------------------------------
+    # PROPAGAR ERROR REAL DEL SERVICIO IGAC
+    # --------------------------------------------------------
+
     if es_error_igac(departamentos):
         return departamentos
 
     coincidencias = []
 
-    for departamento
+    for departamento in departamentos:
+
+        nombre = departamento.get(
+            "departamento"
+        )
+
+        nombre_normalizado = (
+            normalizar_texto(
+                nombre
+            )
+        )
+
+        if not nombre_normalizado:
+            continue
+
+        patron = (
+            r"\b"
+            + re.escape(
+                nombre_normalizado
+            )
+            + r"\b"
+        )
+
+        if re.search(
+            patron,
+            texto
+        ):
+
+            coincidencias.append(
+                departamento
+            )
+
+    if not coincidencias:
+        return None
+
+    coincidencias.sort(
+        key=lambda item: len(
+            normalizar_texto(
+                item.get(
+                    "departamento"
+                )
+            )
+        ),
+        reverse=True
+    )
+
+    return coincidencias[0]
+
+
+# ============================================================
+# RESOLVER CONSULTA NATURAL DE LÍMITES
+# ============================================================
+
+def resolver_consulta_limites(
+    pregunta: str
+) -> Optional[Dict[str, Any]]:
+
+    # --------------------------------------------------------
+    # VERIFICAR SI LA PREGUNTA CORRESPONDE AL IGAC
+    # --------------------------------------------------------
+
+    if not es_consulta_limites_igac(
+        pregunta
+    ):
+        return None
+
+    texto = normalizar_texto(
+        pregunta
+    )
+
+    # --------------------------------------------------------
+    # PRIORIZAR DEPARTAMENTO SOLO SI EL USUARIO LO SOLICITA
+    # EXPLÍCITAMENTE
+    # --------------------------------------------------------
+
+    solicita_departamento = (
+        "departamento" in texto
+        or "departamental" in texto
+    )
+
+    if solicita_departamento:
+
+        departamento = (
+            detectar_departamento_en_pregunta(
+                pregunta
+            )
+        )
+
+        # ----------------------------------------------------
+        # SI EL IGAC FALLÓ, PROPAGAR EL ERROR
+        # ----------------------------------------------------
+
+        if es_error_igac(departamento):
+            return departamento
+
+        if departamento:
+
+            return consultar_limite_departamento(
+                departamento.get(
+                    "departamento"
+                )
+            )
+
+    # --------------------------------------------------------
+    # MUNICIPIO
+    #
+    # IMPORTANTE:
+    # Si encontramos un municipio, TERRI+ no consulta
+    # innecesariamente el catálogo de departamentos.
+    # --------------------------------------------------------
+
+    municipio = (
+        detectar_municipio_en_pregunta(
+            pregunta
+        )
+    )
+
+    # --------------------------------------------------------
+    # SI EL IGAC FALLÓ AL LISTAR MUNICIPIOS,
+    # DEVOLVER EL ERROR REAL
+    # --------------------------------------------------------
+
+    if es_error_igac(municipio):
+        return municipio
+
+    if municipio:
+
+        return consultar_limite_municipio(
+            nombre=municipio.get(
+                "municipio"
+            ),
+            departamento=municipio.get(
+                "departamento"
+            )
+        )
+
+    # --------------------------------------------------------
+    # DEPARTAMENTO
+    #
+    # Solo llegamos aquí si anteriormente no se identificó
+    # ningún municipio.
+    # --------------------------------------------------------
+
+    departamento = (
+        detectar_departamento_en_pregunta(
+            pregunta
+        )
+    )
+
+    # --------------------------------------------------------
+    # SI EL IGAC FALLÓ AL LISTAR DEPARTAMENTOS,
+    # DEVOLVER EL ERROR REAL
+    # --------------------------------------------------------
+
+    if es_error_igac(departamento):
+        return departamento
+
+    if departamento:
+
+        return consultar_limite_departamento(
+            departamento.get(
+                "departamento"
+            )
+        )
+
+    # --------------------------------------------------------
+    # NO SE IDENTIFICÓ MUNICIPIO NI DEPARTAMENTO
+    # --------------------------------------------------------
+
+    return {
+        "ok": False,
+        "tipo": "sin_resultado",
+        "modo": "datos",
+        "fuente": "IGAC",
+        "mensaje": (
+            "Entendí que deseas consultar un límite del IGAC, "
+            "pero no pude identificar el municipio o departamento."
+        )
+    }
