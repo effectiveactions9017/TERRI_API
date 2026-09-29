@@ -22,6 +22,10 @@ from services.external_sources.igac_router import (
     resolver_consulta_igac,
 )
 
+from services.external_sources.global.geonames_router import (
+    resolver_consulta_geonames,
+)
+
 from services.result_engine import (
     guardar_resultado as guardar_resultado_engine,
     imprimir_resultado,
@@ -917,6 +921,231 @@ def analizar_pregunta(pregunta: str) -> dict:
         imprimir_resumen_memoria()
 
         return respuesta_igac
+    # ========================================================
+    # FUENTE EXTERNA GEONAMES
+    # TOPONIMIA Y LOCALIZACIÓN INTERNACIONAL
+    # ========================================================
+
+    respuesta_geonames = resolver_consulta_geonames(
+        pregunta
+    )
+
+    if respuesta_geonames is not None:
+
+        if not isinstance(
+            respuesta_geonames,
+            dict
+        ):
+            raise ValueError(
+                "GeoNames no devolvió una respuesta válida."
+            )
+
+        # ----------------------------------------------------
+        # CONSULTA SIN RESULTADO
+        # ----------------------------------------------------
+
+        if not respuesta_geonames.get(
+            "ok",
+            False
+        ):
+
+            respuesta_geonames["pregunta"] = pregunta
+            respuesta_geonames["seguimiento"] = False
+            respuesta_geonames["reutilizado"] = False
+            respuesta_geonames["ejecuto_sql"] = False
+
+            respuesta_geonames.setdefault(
+                "modo",
+                "datos"
+            )
+
+            respuesta_geonames.setdefault(
+                "inteligencia",
+                {
+                    "tipo": "fuente_externa",
+                    "fuente": "GeoNames",
+                    "mensaje": respuesta_geonames.get(
+                        "mensaje",
+                        "No fue posible localizar el lugar."
+                    )
+                }
+            )
+
+            respuesta_geonames["decision_accion"] = {
+                "accion": "fuente_externa_geonames",
+                "motivo": (
+                    "La pregunta corresponde a una consulta "
+                    "internacional de localización o toponimia."
+                ),
+                "reutilizar_resultado": False,
+                "ejecutar_sql": False,
+                "resultado_disponible": False,
+                "tipo_resultado": respuesta_geonames.get(
+                    "tipo"
+                ),
+                "tabla": None,
+                "layer_id": None
+            }
+
+            return respuesta_geonames
+
+        # ----------------------------------------------------
+        # CONSULTA CON GEOJSON
+        # ----------------------------------------------------
+
+        resultado_geonames = respuesta_geonames.get(
+            "resultado"
+        )
+
+        if not isinstance(
+            resultado_geonames,
+            dict
+        ):
+            raise ValueError(
+                "GeoNames no devolvió un GeoJSON válido."
+            )
+
+        if resultado_geonames.get(
+            "type"
+        ) != "FeatureCollection":
+            raise ValueError(
+                "El resultado GeoNames no corresponde "
+                "a un FeatureCollection."
+            )
+
+        # ----------------------------------------------------
+        # INTELIGENCIA
+        # ----------------------------------------------------
+
+        inteligencia_geonames = respuesta_geonames.get(
+            "inteligencia"
+        )
+
+        if not isinstance(
+            inteligencia_geonames,
+            dict
+        ):
+            inteligencia_geonames = {
+                "tipo": "fuente_externa",
+                "fuente": "GeoNames",
+                "mensaje": (
+                    "Se obtuvo una localización internacional "
+                    "desde GeoNames."
+                )
+            }
+
+        # ----------------------------------------------------
+        # VISUALIZACIÓN
+        # ----------------------------------------------------
+
+        visualizacion_geonames = respuesta_geonames.get(
+            "visualizacion"
+        )
+
+        if not isinstance(
+            visualizacion_geonames,
+            dict
+        ):
+            visualizacion_geonames = {
+                "modo": "simple",
+                "campo_categoria": None,
+                "campo_valor": None,
+                "mostrar_leyenda": False,
+                "titulo_leyenda": "Lugar — GeoNames"
+            }
+
+        layer_id_geonames = (
+            respuesta_geonames.get("layer_id")
+            or "geonames_lugar"
+        )
+
+        # ----------------------------------------------------
+        # PLAN DE FUENTE EXTERNA
+        # ----------------------------------------------------
+
+        plan_geonames = {
+            "tipo_consulta": "fuente_externa",
+            "fuente": "GeoNames",
+            "servicio": "GeoNames Web Services",
+            "tema": "toponimia",
+            "visualizacion": visualizacion_geonames
+        }
+
+        sql_geonames = (
+            "FUENTE_EXTERNA:GEONAMES:TOPONIMIA"
+        )
+
+        # ----------------------------------------------------
+        # COMPLETAR RESPUESTA TERRI+
+        # ----------------------------------------------------
+
+        respuesta_geonames["pregunta"] = pregunta
+        respuesta_geonames["seguimiento"] = False
+        respuesta_geonames["plan"] = plan_geonames
+        respuesta_geonames["visualizacion"] = (
+            visualizacion_geonames
+        )
+        respuesta_geonames["inteligencia"] = (
+            inteligencia_geonames
+        )
+        respuesta_geonames["reutilizado"] = False
+        respuesta_geonames["ejecuto_sql"] = False
+
+        respuesta_geonames["decision_accion"] = {
+            "accion": "fuente_externa_geonames",
+            "motivo": (
+                "La pregunta corresponde a una consulta "
+                "internacional de localización o toponimia."
+            ),
+            "reutilizar_resultado": False,
+            "ejecutar_sql": False,
+            "resultado_disponible": True,
+            "tipo_resultado": "geojson",
+            "tabla": None,
+            "layer_id": layer_id_geonames
+        }
+
+        # ----------------------------------------------------
+        # GUARDAR RESULTADO OPERATIVO
+        # ----------------------------------------------------
+
+        guardar_resultado_engine(
+            tipo="geojson",
+            tabla=None,
+            layer_id=layer_id_geonames,
+            sql=sql_geonames,
+            resultado=resultado_geonames,
+            memoria={
+                "fuente": "GeoNames",
+                "servicio": "GeoNames Web Services",
+                "tema": "toponimia",
+                "lugar": respuesta_geonames.get(
+                    "lugar"
+                ),
+                "pais": respuesta_geonames.get(
+                    "pais"
+                )
+            },
+        )
+
+        imprimir_resultado()
+
+        # ----------------------------------------------------
+        # GUARDAR MEMORIA CONVERSACIONAL
+        # ----------------------------------------------------
+
+        guardar_memoria(
+            pregunta=pregunta,
+            pregunta_contextualizada=pregunta,
+            plan=plan_geonames,
+            sql=sql_geonames,
+            respuesta=respuesta_geonames,
+            inteligencia=inteligencia_geonames,
+        )
+
+        imprimir_resumen_memoria()
+
+        return respuesta_geonames
 
     # ========================================================
     # CONSTRUIR CONTEXTO CONVERSACIONAL
