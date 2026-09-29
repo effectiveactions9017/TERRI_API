@@ -22,7 +22,7 @@ from services.external_sources.igac_router import (
     resolver_consulta_igac,
 )
 
-from services.external_sources.global.geonames_router import (
+from services.external_sources.global_sources.geonames_router import (
     resolver_consulta_geonames,
 )
 
