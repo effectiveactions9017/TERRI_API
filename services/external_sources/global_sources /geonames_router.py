@@ -8,7 +8,7 @@ import re
 import unicodedata
 from typing import Optional
 
-from services.external_sources.global.geonames_service import (
+from services.external_sources.global_sources.geonames_service import (
     buscar_lugar_geojson,
 )
 
