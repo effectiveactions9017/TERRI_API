@@ -79,18 +79,49 @@ def extraer_lugar(
         pregunta or ""
     ).strip()
 
+
+    # --------------------------------------------------------
+    # Eliminar signos iniciales
+    # Ej:
+    # ¿Dónde queda Tokio?
+    # ¡Ubica Madrid!
+    # --------------------------------------------------------
+
+    texto = texto.lstrip(
+        "¿¡ "
+    )
+
+
     patrones = [
+
         r"(?i)^ub[ií]came\s+",
+
         r"(?i)^ubica\s+",
+
+
         r"(?i)^local[ií]zame\s+",
+
         r"(?i)^localiza\s+",
+
+
         r"(?i)^d[oó]nde\s+queda\s+",
+
         r"(?i)^d[oó]nde\s+est[aá]\s+",
+
+
+        r"(?i)^buscar\s+lugar\s+",
+
         r"(?i)^busca\s+el\s+lugar\s+",
+
+
         r"(?i)^busca\s+la\s+ciudad\s+",
+
         r"(?i)^busca\s+la\s+poblaci[oó]n\s+",
+
         r"(?i)^busca\s+el\s+pueblo\s+",
+
     ]
+
 
     for patron in patrones:
 
@@ -99,6 +130,22 @@ def extraer_lugar(
             "",
             texto
         )
+
+
+    # --------------------------------------------------------
+    # Quitar artículos iniciales
+    #
+    # Ej:
+    # la Torre Eiffel
+    # las pirámides de Giza
+    # --------------------------------------------------------
+
+    texto = re.sub(
+        r"(?i)^(el|la|los|las)\s+",
+        "",
+        texto
+    )
+
 
     return texto.strip(
         " .?!¿¡"
@@ -113,15 +160,17 @@ def resolver_consulta_geonames(
     pregunta: str
 ) -> Optional[dict]:
 
+
     # --------------------------------------------------------
     # Si no parece una consulta GeoNames,
-    # dejamos que TERRI+ continúe con las demás fuentes.
+    # continuar flujo TERRI+
     # --------------------------------------------------------
 
     if not es_consulta_geonames(
         pregunta
     ):
         return None
+
 
     # --------------------------------------------------------
     # Extraer lugar
@@ -130,6 +179,7 @@ def resolver_consulta_geonames(
     lugar = extraer_lugar(
         pregunta
     )
+
 
     if not lugar:
 
@@ -143,6 +193,7 @@ def resolver_consulta_geonames(
             )
         }
 
+
     # --------------------------------------------------------
     # Consultar GeoNames
     # --------------------------------------------------------
@@ -150,6 +201,7 @@ def resolver_consulta_geonames(
     respuesta = buscar_lugar_geojson(
         nombre=lugar
     )
+
 
     if not isinstance(
         respuesta,
@@ -166,11 +218,13 @@ def resolver_consulta_geonames(
             )
         }
 
+
     if not respuesta.get(
         "ok",
         False
     ):
         return respuesta
+
 
     # --------------------------------------------------------
     # Validar GeoJSON
@@ -179,6 +233,7 @@ def resolver_consulta_geonames(
     geojson = respuesta.get(
         "resultado"
     )
+
 
     if not isinstance(
         geojson,
@@ -195,10 +250,12 @@ def resolver_consulta_geonames(
             )
         }
 
+
     features = geojson.get(
         "features",
         []
     )
+
 
     if not features:
 
@@ -212,8 +269,9 @@ def resolver_consulta_geonames(
             )
         }
 
+
     # --------------------------------------------------------
-    # Obtener propiedades del primer resultado
+    # Propiedades primer resultado
     # --------------------------------------------------------
 
     properties = (
@@ -223,15 +281,22 @@ def resolver_consulta_geonames(
         )
     )
 
+
     nombre = (
-        properties.get("nombre")
+        properties.get(
+            "nombre"
+        )
         or lugar
     )
 
+
     pais = (
-        properties.get("pais")
+        properties.get(
+            "pais"
+        )
         or ""
     )
+
 
     departamento_estado = (
         properties.get(
@@ -239,6 +304,7 @@ def resolver_consulta_geonames(
         )
         or ""
     )
+
 
     ubicacion = ", ".join(
         valor
@@ -250,6 +316,7 @@ def resolver_consulta_geonames(
         if valor
     )
 
+
     # --------------------------------------------------------
     # Completar respuesta TERRI+
     # --------------------------------------------------------
@@ -259,33 +326,49 @@ def resolver_consulta_geonames(
         "utilizando GeoNames."
     )
 
+
     respuesta["lugar"] = nombre
+
 
     respuesta["pais"] = pais
 
-    respuesta["tema"] = "toponimia"
+
+    respuesta["tema"] = (
+        "toponimia"
+    )
+
 
     respuesta["layer_id"] = (
         "geonames_lugar"
     )
 
+
     respuesta["visualizacion"] = {
+
         "modo": "simple",
+
         "campo_categoria": None,
+
         "campo_valor": None,
+
         "mostrar_leyenda": False,
+
         "titulo_leyenda": (
             "Lugar — GeoNames"
         )
     }
 
+
     respuesta["inteligencia"] = {
+
         "tipo": "fuente_externa",
+
         "fuente": "GeoNames",
+
         "mensaje": respuesta[
             "mensaje"
         ]
     }
 
-    return respuesta
 
+    return respuesta
