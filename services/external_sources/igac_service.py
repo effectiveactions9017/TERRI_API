@@ -1083,9 +1083,13 @@ def resolver_consulta_limites(
             )
         )
 
-    # --------------------------------------------------------
-    # NO SE IDENTIFICÓ MUNICIPIO NI DEPARTAMENTO
-    # --------------------------------------------------------
+# --------------------------------------------------------
+# NO SE IDENTIFICÓ MUNICIPIO NI DEPARTAMENTO
+# --------------------------------------------------------
+
+# Si el usuario mencionó explícitamente al IGAC,
+# devolvemos un error controlado del IGAC.
+if "igac" in texto:
 
     return {
         "ok": False,
@@ -1097,3 +1101,4 @@ def resolver_consulta_limites(
             "pero no pude identificar el municipio o departamento."
         )
     }
+return None
