@@ -24,6 +24,9 @@ from services.external_sources.global_sources.geoboundaries_service import (
 from services.external_sources.global_sources.geoboundaries_router import (
     resolver_consulta_geoboundaries,
 )
+from services.external_sources.global_sources.geoboundaries_analysis import (
+    obtener_extremo_area_geoboundaries,
+)
 
 import ia
 import tributario
@@ -207,7 +210,22 @@ def test_geoboundaries_router(
         }
 
     return resultado
+# ============================================================
+# TEST ANÁLISIS DE ÁREA GEOBOUNDARIES
+# ============================================================
 
+@app.get("/test_geoboundaries/area")
+def test_geoboundaries_area(
+    codigo_iso3: str = "ECU",
+    nivel: str = "ADM1",
+    criterio: str = "menor"
+):
+
+    return obtener_extremo_area_geoboundaries(
+        codigo_iso3=codigo_iso3,
+        nivel=nivel,
+        criterio=criterio
+    )
 
 # ============================================================
 # TEST LÍMITE MUNICIPAL IGAC
