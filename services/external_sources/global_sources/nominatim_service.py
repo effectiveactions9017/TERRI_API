@@ -1402,3 +1402,463 @@ def seleccionar_mejor_resultado(
         "opciones": evaluados[:5],
         "duplicados_detectados": False
     }
+    # ============================================================
+# CONSTRUIR OPCIONES SIMPLIFICADAS
+# ============================================================
+
+def construir_opciones(
+    opciones: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+
+    resultado = []
+
+    for lugar in opciones:
+
+        resultado.append({
+
+            "nombre": lugar.get(
+                "nombre"
+            ),
+
+            "nombre_completo": lugar.get(
+                "nombre_completo"
+            ),
+
+            "categoria": lugar.get(
+                "categoria"
+            ),
+
+            "tipo": lugar.get(
+                "tipo"
+            ),
+
+            "latitud": lugar.get(
+                "latitud"
+            ),
+
+            "longitud": lugar.get(
+                "longitud"
+            ),
+
+            "importancia": lugar.get(
+                "importancia"
+            ),
+
+            "puntuacion": lugar.get(
+                "_puntuacion"
+            )
+        })
+
+    return resultado
+
+
+# ============================================================
+# BUSCAR LUGAR Y CONVERTIR A GEOJSON TERRI+
+# ============================================================
+
+def buscar_lugar_nominatim_geojson(
+    consulta: str,
+    pais: Optional[str] = None
+) -> Dict[str, Any]:
+
+    respuesta = buscar_nominatim(
+        consulta=consulta,
+        pais=pais,
+        limite=5,
+        incluir_geometria=False
+    )
+
+    # --------------------------------------------------------
+    # ERROR DE SERVICIO
+    # --------------------------------------------------------
+
+    if not respuesta.get(
+        "ok",
+        False
+    ):
+
+        return respuesta
+
+
+    resultados = respuesta.get(
+        "resultados",
+        []
+    )
+
+
+    # --------------------------------------------------------
+    # SIN RESULTADOS
+    # --------------------------------------------------------
+
+    if not resultados:
+
+        return {
+            "ok": False,
+            "tipo": "sin_resultado",
+            "modo": "datos",
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            ),
+            "consulta": consulta,
+            "mensaje": (
+                f"No encontré '{consulta}' "
+                "en OpenStreetMap."
+            ),
+            "ejecuto_sql": False,
+            "reutilizado": False
+        }
+
+
+    # --------------------------------------------------------
+    # SELECCIONAR MEJOR RESULTADO
+    # --------------------------------------------------------
+
+    seleccion = (
+        seleccionar_mejor_resultado(
+            consulta=consulta,
+            resultados=resultados
+        )
+    )
+
+
+    estado = seleccion.get(
+        "estado"
+    )
+
+
+    # --------------------------------------------------------
+    # BAJA CONFIANZA
+    # --------------------------------------------------------
+
+    if estado == "baja_confianza":
+
+        return {
+            "ok": False,
+            "tipo": "baja_confianza",
+            "modo": "datos",
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            ),
+            "consulta": consulta,
+            "mensaje": (
+                "OpenStreetMap encontró resultados, "
+                "pero ninguno coincide con suficiente "
+                "confianza con el lugar solicitado."
+            ),
+            "opciones": construir_opciones(
+                seleccion.get(
+                    "opciones",
+                    []
+                )
+            ),
+            "ejecuto_sql": False,
+            "reutilizado": False
+        }
+
+
+    # --------------------------------------------------------
+    # AMBIGÜEDAD
+    # --------------------------------------------------------
+
+    if estado == "ambiguo":
+
+        return {
+            "ok": False,
+            "tipo": "ambiguo",
+            "modo": "datos",
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            ),
+            "consulta": consulta,
+            "mensaje": (
+                "Encontré varios lugares posibles "
+                "en OpenStreetMap. "
+                "Indica más información para precisar "
+                "la ubicación."
+            ),
+            "opciones": construir_opciones(
+                seleccion.get(
+                    "opciones",
+                    []
+                )
+            ),
+            "ejecuto_sql": False,
+            "reutilizado": False
+        }
+
+
+    # --------------------------------------------------------
+    # RESULTADO SELECCIONADO
+    # --------------------------------------------------------
+
+    lugar = seleccion.get(
+        "resultado"
+    )
+
+
+    if not isinstance(
+        lugar,
+        dict
+    ):
+
+        return {
+            "ok": False,
+            "tipo": "sin_resultado",
+            "modo": "datos",
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            ),
+            "consulta": consulta,
+            "mensaje": (
+                "No fue posible seleccionar "
+                "una ubicación válida."
+            ),
+            "ejecuto_sql": False,
+            "reutilizado": False
+        }
+
+
+    # --------------------------------------------------------
+    # CREAR FEATURE GEOJSON
+    # --------------------------------------------------------
+
+    feature = {
+
+        "type": "Feature",
+
+        "geometry": {
+
+            "type": "Point",
+
+            "coordinates": [
+                lugar.get(
+                    "longitud"
+                ),
+                lugar.get(
+                    "latitud"
+                )
+            ]
+        },
+
+        "properties": {
+
+            "place_id": lugar.get(
+                "place_id"
+            ),
+
+            "osm_type": lugar.get(
+                "osm_type"
+            ),
+
+            "osm_id": lugar.get(
+                "osm_id"
+            ),
+
+            "nombre": lugar.get(
+                "nombre"
+            ),
+
+            "nombre_completo": lugar.get(
+                "nombre_completo"
+            ),
+
+            "categoria": lugar.get(
+                "categoria"
+            ),
+
+            "tipo": lugar.get(
+                "tipo"
+            ),
+
+            "tipo_direccion": lugar.get(
+                "tipo_direccion"
+            ),
+
+            "direccion": lugar.get(
+                "direccion"
+            ),
+
+            "extras": lugar.get(
+                "extras"
+            ),
+
+            "nombres": lugar.get(
+                "nombres"
+            ),
+
+            "importancia": lugar.get(
+                "importancia"
+            ),
+
+            "puntuacion_terri": lugar.get(
+                "_puntuacion"
+            ),
+
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            )
+        }
+    }
+
+
+    # --------------------------------------------------------
+    # FEATURE COLLECTION
+    # --------------------------------------------------------
+
+    geojson = {
+
+        "type": "FeatureCollection",
+
+        "features": [
+            feature
+        ]
+    }
+
+
+    # --------------------------------------------------------
+    # BBOX
+    # --------------------------------------------------------
+
+    bbox = lugar.get(
+        "bbox"
+    )
+
+
+    if not bbox:
+
+        longitud = lugar.get(
+            "longitud"
+        )
+
+        latitud = lugar.get(
+            "latitud"
+        )
+
+        bbox = [
+            longitud,
+            latitud,
+            longitud,
+            latitud
+        ]
+
+
+    # --------------------------------------------------------
+    # MENSAJE
+    # --------------------------------------------------------
+
+    nombre = (
+        lugar.get(
+            "nombre"
+        )
+        or consulta
+    )
+
+
+    direccion = (
+        lugar.get(
+            "direccion"
+        )
+        or {}
+    )
+
+
+    ciudad = (
+        direccion.get("city")
+        or direccion.get("town")
+        or direccion.get("municipality")
+        or direccion.get("village")
+        or ""
+    )
+
+
+    pais_nombre = (
+        direccion.get(
+            "country"
+        )
+        or ""
+    )
+
+
+    ubicacion = ", ".join(
+        valor
+        for valor in [
+            nombre,
+            ciudad,
+            pais_nombre
+        ]
+        if valor
+    )
+
+
+    mensaje = (
+        f"Localicé {ubicacion} "
+        "utilizando OpenStreetMap."
+    )
+
+
+    # --------------------------------------------------------
+    # RESPUESTA TERRI+
+    # --------------------------------------------------------
+
+    return {
+
+        "ok": True,
+
+        "tipo": "geojson",
+
+        "modo": "mapa",
+
+        "fuente": (
+            "OpenStreetMap/Nominatim"
+        ),
+
+        "consulta": consulta,
+
+        "resultado": geojson,
+
+        "total_features": 1,
+
+        "bbox": bbox,
+
+        "layer_id": (
+            "nominatim_lugar"
+        ),
+
+        "visualizacion": {
+
+            "modo": "simple",
+
+            "campo_categoria": None,
+
+            "campo_valor": None,
+
+            "mostrar_leyenda": False,
+
+            "titulo_leyenda": (
+                "Lugar — OpenStreetMap"
+            )
+        },
+
+        "mensaje": mensaje,
+
+        "atribucion": (
+            "© OpenStreetMap contributors"
+        ),
+
+        "ejecuto_sql": False,
+
+        "reutilizado": False,
+
+        "inteligencia": {
+
+            "tipo": (
+                "fuente_externa"
+            ),
+
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            ),
+
+            "mensaje": mensaje
+        }
+    }
