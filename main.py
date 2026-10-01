@@ -14,6 +14,11 @@ from services.external_sources.igac_service import (
     consultar_limite_municipio_codigo,
     listar_departamentos,
 )
+from services.external_sources.global_sources.nominatim_service import (
+    verificar_nominatim,
+    buscar_nominatim,
+    buscar_lugar_nominatim_geojson,
+)
 
 import ia
 import tributario
@@ -124,6 +129,44 @@ def test_construcciones():
 def test_igac():
 
     return verificar_servicio_igac()
+
+# ============================================================
+# TEST CONEXIÓN NOMINATIM / OPENSTREETMAP
+# ============================================================
+
+@app.get("/test_nominatim")
+def test_nominatim():
+
+    return verificar_nominatim()
+
+
+# ============================================================
+# BUSCAR LUGAR EN NOMINATIM / OPENSTREETMAP
+# ============================================================
+
+@app.get("/test_nominatim/buscar")
+def test_nominatim_buscar(
+    consulta: str
+):
+
+    return buscar_nominatim(
+        consulta=consulta,
+        limite=5
+    )
+
+
+# ============================================================
+# BUSCAR LUGAR NOMINATIM COMO GEOJSON
+# ============================================================
+
+@app.get("/test_nominatim/geojson")
+def test_nominatim_geojson(
+    consulta: str
+):
+
+    return buscar_lugar_nominatim_geojson(
+        consulta=consulta
+    )
 
 
 # ============================================================
