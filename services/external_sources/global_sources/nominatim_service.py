@@ -1,8 +1,18 @@
 # ============================================================
 # TERRI+
 # NOMINATIM / OPENSTREETMAP SERVICE
-# Búsqueda mundial de POI, edificios, instituciones,
-# monumentos, lugares y direcciones
+#
+# Búsqueda mundial de:
+# - edificios
+# - instituciones
+# - monumentos
+# - aeropuertos
+# - hospitales
+# - universidades
+# - direcciones
+# - POI
+#
+# Compatible con TERRI+ + MapLibre
 # ============================================================
 
 import re
@@ -17,7 +27,7 @@ import requests
 
 
 # ============================================================
-# CONFIGURACIÓN NOMINATIM
+# CONFIGURACIÓN
 # ============================================================
 
 NOMINATIM_BASE_URL = (
@@ -32,10 +42,9 @@ NOMINATIM_TIMEOUT = 20
 
 
 # ============================================================
-# IDENTIFICACIÓN DE TERRI+
+# HEADERS
 #
-# El servidor público de Nominatim requiere identificar
-# correctamente la aplicación.
+# Nominatim público exige identificar la aplicación.
 # ============================================================
 
 NOMINATIM_HEADERS = {
@@ -56,8 +65,8 @@ NOMINATIM_HEADERS = {
 # ============================================================
 # CONTROL DE FRECUENCIA
 #
-# Se usa un intervalo algo superior a 1 segundo para evitar
-# trabajar exactamente en el límite del servicio público.
+# Usamos 1.5 segundos para mantenernos por debajo
+# del límite del servicio público.
 # ============================================================
 
 INTERVALO_MINIMO_SEGUNDOS = 1.5
@@ -68,10 +77,7 @@ LOCK_NOMINATIM = threading.Lock()
 
 
 # ============================================================
-# CACHE SIMPLE EN MEMORIA
-#
-# Evita consultar nuevamente Nominatim cuando TERRI+
-# ya resolvió exactamente la misma búsqueda.
+# CACHE EN MEMORIA
 # ============================================================
 
 CACHE_NOMINATIM: Dict[
@@ -122,9 +128,6 @@ def normalizar_texto(
 
 # ============================================================
 # PALABRAS POCO INFORMATIVAS
-#
-# No queremos que palabras como "de", "la", "el" aumenten
-# artificialmente la similitud entre dos lugares.
 # ============================================================
 
 PALABRAS_VACIAS = {
@@ -141,7 +144,7 @@ PALABRAS_VACIAS = {
 
 
 # ============================================================
-# LIMPIAR TEXTO PARA COMPARACIÓN
+# TEXTO COMPARABLE
 # ============================================================
 
 def texto_comparable(
@@ -191,7 +194,7 @@ def construir_clave_cache(
 
 
 # ============================================================
-# CONTROLAR FRECUENCIA
+# CONTROL DE FRECUENCIA
 # ============================================================
 
 def respetar_limite_frecuencia() -> None:
@@ -224,12 +227,12 @@ def respetar_limite_frecuencia() -> None:
 
 
 # ============================================================
-# EXTRAER BBOX
+# CONVERTIR BOUNDING BOX
 #
-# Nominatim devuelve:
+# Nominatim:
 # [sur, norte, oeste, este]
 #
-# TERRI+ utiliza:
+# TERRI+:
 # [xmin, ymin, xmax, ymax]
 # ============================================================
 
@@ -362,9 +365,12 @@ def normalizar_resultado(
             "addresstype"
         ),
 
-        "importancia": elemento.get(
-            "importance"
-        ) or 0,
+        "importancia": (
+            elemento.get(
+                "importance"
+            )
+            or 0
+        ),
 
         "direccion": (
             elemento.get(
@@ -398,7 +404,43 @@ def normalizar_resultado(
 
 
 # ============================================================
-# BUSCAR NOMINATIM
+# VERIFICAR SERVICIO
+# ============================================================
+
+def verificar_nominatim() -> Dict[str, Any]:
+
+    # --------------------------------------------------------
+    # IMPORTANTE:
+    #
+    # No hacemos una segunda consulta especial.
+    # Utilizamos la misma función de búsqueda.
+    # --------------------------------------------------------
+
+    resultado = buscar_nominatim(
+        consulta="Bogotá, Colombia",
+        limite=1
+    )
+
+    if not resultado.get(
+        "ok",
+        False
+    ):
+
+        return resultado
+
+    return {
+        "ok": True,
+        "fuente": (
+            "OpenStreetMap/Nominatim"
+        ),
+        "mensaje": (
+            "Servicio Nominatim disponible."
+        )
+    }
+
+
+# ============================================================
+# BUSCAR EN NOMINATIM
 # ============================================================
 
 def buscar_nominatim(
@@ -412,6 +454,11 @@ def buscar_nominatim(
         consulta or ""
     ).strip()
 
+
+    # --------------------------------------------------------
+    # VALIDAR CONSULTA
+    # --------------------------------------------------------
+
     if not consulta:
 
         return {
@@ -423,12 +470,13 @@ def buscar_nominatim(
             "mensaje": (
                 "Debes indicar un lugar "
                 "para buscar."
-            )
+            ),
+            "ejecuto_sql": False
         }
 
 
     # --------------------------------------------------------
-    # LIMITAR CANTIDAD DE RESULTADOS
+    # VALIDAR LÍMITE
     # --------------------------------------------------------
 
     try:
@@ -484,7 +532,7 @@ def buscar_nominatim(
 
 
     # --------------------------------------------------------
-    # PARÁMETROS NOMINATIM
+    # PARÁMETROS
     # --------------------------------------------------------
 
     parametros = {
@@ -508,8 +556,8 @@ def buscar_nominatim(
     # --------------------------------------------------------
     # FILTRO PAÍS
     #
-    # Debe ser código ISO de dos letras:
-    # co, es, fr...
+    # Debe recibirse como código ISO:
+    # co, es, fr, etc.
     # --------------------------------------------------------
 
     if pais:
@@ -552,9 +600,9 @@ def buscar_nominatim(
 
 
         # ----------------------------------------------------
-        # HTTP 429
+        # 429 - DEMASIADAS SOLICITUDES
         #
-        # NO reintentamos automáticamente.
+        # No reintentamos automáticamente.
         # ----------------------------------------------------
 
         if response.status_code == 429:
@@ -601,7 +649,9 @@ def buscar_nominatim(
             }
 
 
-        resultados = []
+        resultados: List[
+            Dict[str, Any]
+        ] = []
 
 
         for elemento in datos:
@@ -653,7 +703,7 @@ def buscar_nominatim(
 
 
         # ----------------------------------------------------
-        # SOLO CACHEAR RESPUESTAS CORRECTAS
+        # CACHEAR SOLO RESPUESTAS CORRECTAS
         # ----------------------------------------------------
 
         CACHE_NOMINATIM[
@@ -708,7 +758,9 @@ def buscar_nominatim(
                 "No fue posible consultar "
                 "Nominatim."
             ),
-            "error": str(error),
+            "error": str(
+                error
+            ),
             "ejecuto_sql": False
         }
 
@@ -725,7 +777,9 @@ def buscar_nominatim(
                 "Ocurrió un error al procesar "
                 "la consulta de Nominatim."
             ),
-            "error": str(error),
+            "error": str(
+                error
+            ),
             "ejecuto_sql": False
         }
 
@@ -739,18 +793,22 @@ def calcular_similitud(
     candidato: str
 ) -> float:
 
-    consulta = texto_comparable(
-        consulta
+    consulta_limpia = (
+        texto_comparable(
+            consulta
+        )
     )
 
-    candidato = texto_comparable(
-        candidato
+    candidato_limpio = (
+        texto_comparable(
+            candidato
+        )
     )
 
 
     if (
-        not consulta
-        or not candidato
+        not consulta_limpia
+        or not candidato_limpio
     ):
 
         return 0.0
@@ -758,8 +816,8 @@ def calcular_similitud(
 
     return SequenceMatcher(
         None,
-        consulta,
-        candidato
+        consulta_limpia,
+        candidato_limpio
     ).ratio()
 
 
@@ -837,7 +895,7 @@ def puntuar_candidato(
 
 
     # --------------------------------------------------------
-    # NOMBRE CONTENIDO EN LA CONSULTA
+    # NOMBRE CONTENIDO
     # --------------------------------------------------------
 
     elif (
@@ -873,8 +931,6 @@ def puntuar_candidato(
 
     # --------------------------------------------------------
     # IMPORTANCIA NOMINATIM
-    #
-    # Se usa como complemento, nunca como criterio principal.
     # --------------------------------------------------------
 
     try:
@@ -901,11 +957,7 @@ def puntuar_candidato(
 
 
     # --------------------------------------------------------
-    # PENALIZAR RESULTADOS COMERCIALES DE BAJA RELEVANCIA
-    #
-    # Esto ayuda con casos como:
-    # Palacio de Nariño
-    # -> Palacio del Granizado (ice_cream)
+    # CATEGORÍA Y TIPO
     # --------------------------------------------------------
 
     categoria = normalizar_texto(
@@ -914,7 +966,6 @@ def puntuar_candidato(
         )
     )
 
-
     tipo = normalizar_texto(
         lugar.get(
             "tipo"
@@ -922,20 +973,32 @@ def puntuar_candidato(
     )
 
 
-    tipos_comerciales_baja_confianza = {
+    # --------------------------------------------------------
+    # PENALIZAR COMERCIOS DE BAJA COINCIDENCIA
+    #
+    # Ejemplo:
+    # Palacio de Nariño
+    # -> Palacio del Granizado / ice_cream
+    # --------------------------------------------------------
+
+    tipos_comerciales = {
+
         "ice_cream",
         "fast_food",
         "cafe",
         "restaurant",
         "bar",
         "pub",
-        "shop"
+        "supermarket",
+        "convenience",
+        "clothes",
+        "beauty",
+        "hairdresser"
     }
 
 
     if (
-        tipo
-        in tipos_comerciales_baja_confianza
+        tipo in tipos_comerciales
         and similitud_nombre < 0.75
     ):
 
@@ -943,7 +1006,7 @@ def puntuar_candidato(
 
 
     # --------------------------------------------------------
-    # BONIFICAR ALGUNOS TIPOS DE POI RELEVANTES
+    # BONIFICAR POI TERRITORIALES IMPORTANTES
     # --------------------------------------------------------
 
     tipos_relevantes = {
@@ -965,11 +1028,33 @@ def puntuar_candidato(
         "attraction",
         "place_of_worship"
     }
-
+        # --------------------------------------------------------
+    # BONIFICACIÓN POR TIPO RELEVANTE
+    # --------------------------------------------------------
 
     if tipo in tipos_relevantes:
+        puntuacion += 20
 
-        puntuacion += 15
+
+    # --------------------------------------------------------
+    # BONIFICACIÓN POR CATEGORÍA
+    # --------------------------------------------------------
+
+    categorias_relevantes = {
+        "amenity",
+        "tourism",
+        "historic",
+        "aeroway",
+        "office",
+        "building",
+        "leisure",
+        "natural",
+        "place"
+    }
+
+
+    if categoria in categorias_relevantes:
+        puntuacion += 5
 
 
     return {
@@ -999,9 +1084,7 @@ def puntuar_candidato(
 
 def seleccionar_mejor_resultado(
     consulta: str,
-    resultados: List[
-        Dict[str, Any]
-    ]
+    resultados: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
 
     if not resultados:
@@ -1013,19 +1096,567 @@ def seleccionar_mejor_resultado(
         }
 
 
-    evaluados = [
+    evaluados = []
 
-        puntuar_candidato(
+    for lugar in resultados:
+
+        evaluado = puntuar_candidato(
             consulta=consulta,
             lugar=lugar
         )
 
-        for lugar in resultados
-    ]
+        evaluados.append(
+            evaluado
+        )
 
 
     evaluados.sort(
-        key=lambda lugar: (
-            lugar.get(
+        key=lambda lugar: lugar.get(
+            "_puntuacion",
+            0
+        ),
+        reverse=True
+    )
+
+
+    mejor = evaluados[0]
+
+
+    # --------------------------------------------------------
+    # VALIDAR CONFIANZA
+    #
+    # Evita aceptar resultados con nombres poco relacionados.
+    # Ejemplo:
+    #
+    # Palacio de Nariño
+    # ->
+    # Palacio del Granizado
+    # --------------------------------------------------------
+
+    similitud = mejor.get(
+        "_similitud_nombre",
+        0
+    )
+
+    puntuacion = mejor.get(
+        "_puntuacion",
+        0
+    )
+
+
+    if (
+        similitud < 0.45
+        and puntuacion < 70
+    ):
+
+        return {
+            "estado": "baja_confianza",
+            "resultado": None,
+            "opciones": evaluados[:5]
+        }
+
+
+    # --------------------------------------------------------
+    # VALIDAR AMBIGÜEDAD
+    # --------------------------------------------------------
+
+    if len(evaluados) >= 2:
+
+        segundo = evaluados[1]
+
+        diferencia = (
+            mejor.get(
                 "_puntuacion",
                 0
+            )
+            - segundo.get(
+                "_puntuacion",
+                0
+            )
+        )
+
+
+        if (
+            diferencia < 5
+            and similitud < 0.80
+        ):
+
+            return {
+                "estado": "ambiguo",
+                "resultado": None,
+                "opciones": evaluados[:5]
+            }
+
+
+    return {
+        "estado": "encontrado",
+        "resultado": mejor,
+        "opciones": evaluados[:5]
+    }
+
+
+# ============================================================
+# CONSTRUIR OPCIONES SIMPLIFICADAS
+# ============================================================
+
+def construir_opciones(
+    opciones: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+
+    resultado = []
+
+
+    for lugar in opciones:
+
+        resultado.append({
+
+            "nombre": lugar.get(
+                "nombre"
+            ),
+
+            "nombre_completo": lugar.get(
+                "nombre_completo"
+            ),
+
+            "categoria": lugar.get(
+                "categoria"
+            ),
+
+            "tipo": lugar.get(
+                "tipo"
+            ),
+
+            "latitud": lugar.get(
+                "latitud"
+            ),
+
+            "longitud": lugar.get(
+                "longitud"
+            ),
+
+            "importancia": lugar.get(
+                "importancia"
+            ),
+
+            "puntuacion": lugar.get(
+                "_puntuacion"
+            )
+        })
+
+
+    return resultado
+
+
+# ============================================================
+# BUSCAR LUGAR Y CONVERTIR A GEOJSON TERRI+
+# ============================================================
+
+def buscar_lugar_nominatim_geojson(
+    consulta: str,
+    pais: Optional[str] = None
+) -> Dict[str, Any]:
+
+    respuesta = buscar_nominatim(
+        consulta=consulta,
+        pais=pais,
+        limite=5,
+        incluir_geometria=False
+    )
+
+
+    # --------------------------------------------------------
+    # ERROR DE SERVICIO
+    # --------------------------------------------------------
+
+    if not respuesta.get(
+        "ok",
+        False
+    ):
+
+        return respuesta
+
+
+    resultados = respuesta.get(
+        "resultados",
+        []
+    )
+
+
+    # --------------------------------------------------------
+    # SIN RESULTADOS
+    # --------------------------------------------------------
+
+    if not resultados:
+
+        return {
+            "ok": False,
+            "tipo": "sin_resultado",
+            "modo": "datos",
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            ),
+            "consulta": consulta,
+            "mensaje": (
+                f"No encontré '{consulta}' "
+                "en OpenStreetMap."
+            ),
+            "ejecuto_sql": False,
+            "reutilizado": False
+        }
+
+
+    # --------------------------------------------------------
+    # SELECCIONAR MEJOR RESULTADO
+    # --------------------------------------------------------
+
+    seleccion = (
+        seleccionar_mejor_resultado(
+            consulta=consulta,
+            resultados=resultados
+        )
+    )
+
+
+    estado = seleccion.get(
+        "estado"
+    )
+
+
+    # --------------------------------------------------------
+    # BAJA CONFIANZA
+    # --------------------------------------------------------
+
+    if estado == "baja_confianza":
+
+        return {
+            "ok": False,
+            "tipo": "baja_confianza",
+            "modo": "datos",
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            ),
+            "consulta": consulta,
+            "mensaje": (
+                "OpenStreetMap encontró resultados, "
+                "pero ninguno coincide con suficiente "
+                "confianza con el lugar solicitado."
+            ),
+            "opciones": construir_opciones(
+                seleccion.get(
+                    "opciones",
+                    []
+                )
+            ),
+            "ejecuto_sql": False,
+            "reutilizado": False
+        }
+
+
+    # --------------------------------------------------------
+    # AMBIGÜEDAD
+    # --------------------------------------------------------
+
+    if estado == "ambiguo":
+
+        return {
+            "ok": False,
+            "tipo": "ambiguo",
+            "modo": "datos",
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            ),
+            "consulta": consulta,
+            "mensaje": (
+                "Encontré varios lugares posibles "
+                "en OpenStreetMap. "
+                "Indica más información para precisar "
+                "la ubicación."
+            ),
+            "opciones": construir_opciones(
+                seleccion.get(
+                    "opciones",
+                    []
+                )
+            ),
+            "ejecuto_sql": False,
+            "reutilizado": False
+        }
+
+
+    # --------------------------------------------------------
+    # RESULTADO SELECCIONADO
+    # --------------------------------------------------------
+
+    lugar = seleccion.get(
+        "resultado"
+    )
+
+
+    if not isinstance(
+        lugar,
+        dict
+    ):
+
+        return {
+            "ok": False,
+            "tipo": "sin_resultado",
+            "modo": "datos",
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            ),
+            "consulta": consulta,
+            "mensaje": (
+                "No fue posible seleccionar "
+                "una ubicación válida."
+            ),
+            "ejecuto_sql": False,
+            "reutilizado": False
+        }
+
+
+    # --------------------------------------------------------
+    # CREAR FEATURE GEOJSON
+    # --------------------------------------------------------
+
+    feature = {
+
+        "type": "Feature",
+
+        "geometry": {
+
+            "type": "Point",
+
+            "coordinates": [
+
+                lugar.get(
+                    "longitud"
+                ),
+
+                lugar.get(
+                    "latitud"
+                )
+            ]
+        },
+
+        "properties": {
+
+            "place_id": lugar.get(
+                "place_id"
+            ),
+
+            "osm_type": lugar.get(
+                "osm_type"
+            ),
+
+            "osm_id": lugar.get(
+                "osm_id"
+            ),
+
+            "nombre": lugar.get(
+                "nombre"
+            ),
+
+            "nombre_completo": lugar.get(
+                "nombre_completo"
+            ),
+
+            "categoria": lugar.get(
+                "categoria"
+            ),
+
+            "tipo": lugar.get(
+                "tipo"
+            ),
+
+            "tipo_direccion": lugar.get(
+                "tipo_direccion"
+            ),
+
+            "direccion": lugar.get(
+                "direccion"
+            ),
+
+            "extras": lugar.get(
+                "extras"
+            ),
+
+            "nombres": lugar.get(
+                "nombres"
+            ),
+
+            "importancia": lugar.get(
+                "importancia"
+            ),
+
+            "puntuacion_terri": lugar.get(
+                "_puntuacion"
+            ),
+
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            )
+        }
+    }
+
+
+    # --------------------------------------------------------
+    # FEATURE COLLECTION
+    # --------------------------------------------------------
+
+    geojson = {
+
+        "type": "FeatureCollection",
+
+        "features": [
+            feature
+        ]
+    }
+
+
+    # --------------------------------------------------------
+    # BBOX
+    # --------------------------------------------------------
+
+    bbox = lugar.get(
+        "bbox"
+    )
+
+
+    if not bbox:
+
+        longitud = lugar.get(
+            "longitud"
+        )
+
+        latitud = lugar.get(
+            "latitud"
+        )
+
+        bbox = [
+            longitud,
+            latitud,
+            longitud,
+            latitud
+        ]
+
+
+    # --------------------------------------------------------
+    # MENSAJE
+    # --------------------------------------------------------
+
+    nombre = (
+        lugar.get(
+            "nombre"
+        )
+        or consulta
+    )
+
+
+    direccion = (
+        lugar.get(
+            "direccion"
+        )
+        or {}
+    )
+
+
+    ciudad = (
+        direccion.get("city")
+        or direccion.get("town")
+        or direccion.get("municipality")
+        or direccion.get("village")
+        or ""
+    )
+
+
+    pais_nombre = (
+        direccion.get(
+            "country"
+        )
+        or ""
+    )
+
+
+    ubicacion = ", ".join(
+        valor
+        for valor in [
+            nombre,
+            ciudad,
+            pais_nombre
+        ]
+        if valor
+    )
+
+
+    mensaje = (
+        f"Localicé {ubicacion} "
+        "utilizando OpenStreetMap."
+    )
+
+
+    # --------------------------------------------------------
+    # RESPUESTA TERRI+
+    # --------------------------------------------------------
+
+    return {
+
+        "ok": True,
+
+        "tipo": "geojson",
+
+        "modo": "mapa",
+
+        "fuente": (
+            "OpenStreetMap/Nominatim"
+        ),
+
+        "consulta": consulta,
+
+        "resultado": geojson,
+
+        "total_features": 1,
+
+        "bbox": bbox,
+
+        "layer_id": (
+            "nominatim_lugar"
+        ),
+
+        "visualizacion": {
+
+            "modo": "simple",
+
+            "campo_categoria": None,
+
+            "campo_valor": None,
+
+            "mostrar_leyenda": False,
+
+            "titulo_leyenda": (
+                "Lugar — OpenStreetMap"
+            )
+        },
+
+        "mensaje": mensaje,
+
+        "atribucion": (
+            "© OpenStreetMap contributors"
+        ),
+
+        "ejecuto_sql": False,
+
+        "reutilizado": False,
+
+        "inteligencia": {
+
+            "tipo": (
+                "fuente_externa"
+            ),
+
+            "fuente": (
+                "OpenStreetMap/Nominatim"
+            ),
+
+            "mensaje": mensaje
+        }
+    }
