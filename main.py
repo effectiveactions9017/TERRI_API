@@ -182,6 +182,34 @@ def test_geoboundaries_geojson(
 
 
 # ============================================================
+# TEST ROUTER GEOBOUNDARIES
+# ============================================================
+
+@app.get("/test_geoboundaries/router")
+def test_geoboundaries_router(
+    pregunta: str
+):
+
+    resultado = resolver_consulta_geoboundaries(
+        pregunta
+    )
+
+    if resultado is None:
+
+        return {
+            "ok": False,
+            "tipo": "no_detectado",
+            "pregunta": pregunta,
+            "mensaje": (
+                "El router de geoBoundaries "
+                "no reconoció la consulta."
+            )
+        }
+
+    return resultado
+
+
+# ============================================================
 # TEST LÍMITE MUNICIPAL IGAC
 # ============================================================
 
@@ -430,7 +458,13 @@ Ejemplos:
 - Consulta el municipio de Chía
 
 - Lista los departamentos disponibles en el IGAC
+
+- Muéstrame el límite de Colombia
+
+- Muéstrame los departamentos de Colombia
+
+- Muéstrame las provincias de Ecuador
+
+- Muéstrame los estados de México
 """
     }
-    
-    
