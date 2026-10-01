@@ -1083,22 +1083,26 @@ def resolver_consulta_limites(
             )
         )
 
-# --------------------------------------------------------
-# NO SE IDENTIFICÓ MUNICIPIO NI DEPARTAMENTO
-# --------------------------------------------------------
+    # --------------------------------------------------------
+    # NO SE IDENTIFICÓ MUNICIPIO NI DEPARTAMENTO
+    # --------------------------------------------------------
 
-# Si el usuario mencionó explícitamente al IGAC,
-# devolvemos un error controlado del IGAC.
-if "igac" in texto:
+    # Si el usuario mencionó explícitamente al IGAC,
+    # devolvemos un error controlado del IGAC.
+    if "igac" in texto:
 
-    return {
-        "ok": False,
-        "tipo": "sin_resultado",
-        "modo": "datos",
-        "fuente": "IGAC",
-        "mensaje": (
-            "Entendí que deseas consultar un límite del IGAC, "
-            "pero no pude identificar el municipio o departamento."
-        )
-    }
-return None
+        return {
+            "ok": False,
+            "tipo": "sin_resultado",
+            "modo": "datos",
+            "fuente": "IGAC",
+            "mensaje": (
+                "Entendí que deseas consultar un límite del IGAC, "
+                "pero no pude identificar el municipio o departamento."
+            )
+        }
+
+    # Si no mencionó explícitamente al IGAC y tampoco
+    # encontramos un municipio o departamento colombiano,
+    # liberamos la consulta para otras fuentes.
+    return None
