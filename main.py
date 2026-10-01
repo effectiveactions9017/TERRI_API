@@ -15,6 +15,12 @@ from services.external_sources.igac_service import (
     listar_departamentos,
 )
 
+from services.external_sources.global_sources.geoboundaries_service import (
+    verificar_geoboundaries,
+    obtener_metadatos_geoboundaries,
+    obtener_geojson_geoboundaries,
+)
+
 import ia
 import tributario
 
@@ -28,7 +34,7 @@ app = FastAPI(
     title="TERRI+ IA Territorial",
     description=(
         "Motor inteligente para análisis geoespacial "
-        "con PostGIS y fuentes oficiales externas como IGAC"
+        "con PostGIS y fuentes geográficas externas"
     ),
     version="2.3"
 )
@@ -72,6 +78,7 @@ def inicio():
         "sistema": "🤖 TERRI+ IA Territorial funcionando",
         "postgis": "conectado",
         "igac": "disponible",
+        "geoboundaries": "integrado",
         "version": "2.3 modular"
     }
 
@@ -124,6 +131,50 @@ def test_construcciones():
 def test_igac():
 
     return verificar_servicio_igac()
+
+
+# ============================================================
+# TEST CONEXIÓN GEOBOUNDARIES
+# ============================================================
+
+@app.get("/test_geoboundaries")
+def test_geoboundaries():
+
+    return verificar_geoboundaries()
+
+
+# ============================================================
+# TEST METADATOS GEOBOUNDARIES
+# ============================================================
+
+@app.get("/test_geoboundaries/metadata")
+def test_geoboundaries_metadata(
+    codigo_iso3: str = "COL",
+    nivel: str = "ADM0"
+):
+
+    return obtener_metadatos_geoboundaries(
+        codigo_iso3=codigo_iso3,
+        nivel=nivel
+    )
+
+
+# ============================================================
+# TEST GEOJSON GEOBOUNDARIES
+# ============================================================
+
+@app.get("/test_geoboundaries/geojson")
+def test_geoboundaries_geojson(
+    codigo_iso3: str = "COL",
+    nivel: str = "ADM0",
+    simplificado: bool = True
+):
+
+    return obtener_geojson_geoboundaries(
+        codigo_iso3=codigo_iso3,
+        nivel=nivel,
+        simplificado=simplificado
+    )
 
 
 # ============================================================
@@ -331,7 +382,7 @@ def analizar(
 🤖 TERRI+ IA
 
 Puedo analizar actualmente información territorial
-almacenada en PostGIS y consultar fuentes oficiales
+almacenada en PostGIS y consultar fuentes geográficas
 externas.
 
 1. Predios
@@ -354,6 +405,10 @@ externas.
    - consultar límites mediante código DANE
    - consultar departamentos
 
+4. Fuentes geográficas globales
+   - GeoNames para localización y toponimia
+   - geoBoundaries para límites administrativos internacionales
+
 Ejemplos:
 
 - Analiza los predios de Sesquilé
@@ -372,4 +427,5 @@ Ejemplos:
 
 - Lista los departamentos disponibles en el IGAC
 """
-    }
+    }esta completo si?
+    
