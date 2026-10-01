@@ -1,293 +1,160 @@
 # ============================================================
 # TERRI+
-# GEOBOUNDARIES ROUTER
-# Interpretación de consultas sobre límites administrativos
-# internacionales y análisis de áreas
+# GEOBOUNDARIES SERVICE
+# Límites administrativos internacionales
 # ============================================================
 
-import re
-import unicodedata
-
-from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import requests
-
-from services.external_sources.global_sources.geoboundaries_service import (
-    obtener_geojson_geoboundaries,
-)
-
-from services.external_sources.global_sources.geoboundaries_analysis import (
-    obtener_extremo_area_geoboundaries,
-)
 
 
 # ============================================================
 # CONFIGURACIÓN
 # ============================================================
 
-GEOBOUNDARIES_CATALOGO_URL = (
-    "https://www.geoboundaries.org/"
-    "api/current/gbOpen/ALL/ADM0/"
+GEOBOUNDARIES_BASE_URL = (
+    "https://www.geoboundaries.org/api/current/gbOpen"
 )
 
 GEOBOUNDARIES_TIMEOUT = 30
 
 
 # ============================================================
-# ALIAS DE PAÍSES
+# VALIDAR NIVEL ADMINISTRATIVO
 # ============================================================
 
-ALIAS_PAISES = {
-
-    # --------------------------------------------------------
-    # AMÉRICA DEL SUR
-    # --------------------------------------------------------
-
-    "colombia": "COL",
-    "ecuador": "ECU",
-    "peru": "PER",
-    "brasil": "BRA",
-    "brazil": "BRA",
-    "venezuela": "VEN",
-    "bolivia": "BOL",
-    "chile": "CHL",
-    "argentina": "ARG",
-    "uruguay": "URY",
-    "paraguay": "PRY",
-    "guyana": "GUY",
-    "surinam": "SUR",
-    "suriname": "SUR",
-
-    # --------------------------------------------------------
-    # CENTROAMÉRICA Y NORTEAMÉRICA
-    # --------------------------------------------------------
-
-    "mexico": "MEX",
-    "panama": "PAN",
-    "costa rica": "CRI",
-    "nicaragua": "NIC",
-    "honduras": "HND",
-    "el salvador": "SLV",
-    "guatemala": "GTM",
-    "belice": "BLZ",
-    "belize": "BLZ",
-
-    "estados unidos": "USA",
-    "estados unidos de america": "USA",
-    "united states": "USA",
-    "usa": "USA",
-
-    "canada": "CAN",
-
-    # --------------------------------------------------------
-    # CARIBE
-    # --------------------------------------------------------
-
-    "cuba": "CUB",
-    "haiti": "HTI",
-    "jamaica": "JAM",
-    "republica dominicana": "DOM",
-    "dominican republic": "DOM",
-
-    # --------------------------------------------------------
-    # EUROPA
-    # --------------------------------------------------------
-
-    "espana": "ESP",
-    "spain": "ESP",
-
-    "francia": "FRA",
-    "france": "FRA",
-
-    "alemania": "DEU",
-    "germany": "DEU",
-
-    "italia": "ITA",
-    "italy": "ITA",
-
-    "portugal": "PRT",
-
-    "reino unido": "GBR",
-    "gran bretana": "GBR",
-    "united kingdom": "GBR",
-
-    "paises bajos": "NLD",
-    "holanda": "NLD",
-    "netherlands": "NLD",
-
-    "belgica": "BEL",
-    "belgium": "BEL",
-
-    "suiza": "CHE",
-    "switzerland": "CHE",
-
-    "austria": "AUT",
-
-    "irlanda": "IRL",
-    "ireland": "IRL",
-
-    "noruega": "NOR",
-    "norway": "NOR",
-
-    "suecia": "SWE",
-    "sweden": "SWE",
-
-    "finlandia": "FIN",
-    "finland": "FIN",
-
-    "dinamarca": "DNK",
-    "denmark": "DNK",
-
-    "polonia": "POL",
-    "poland": "POL",
-
-    "grecia": "GRC",
-    "greece": "GRC",
-
-    "ucrania": "UKR",
-    "ukraine": "UKR",
-
-    "rusia": "RUS",
-    "russian federation": "RUS",
-
-    # --------------------------------------------------------
-    # ASIA
-    # --------------------------------------------------------
-
-    "china": "CHN",
-
-    "japon": "JPN",
-    "japan": "JPN",
-
-    "india": "IND",
-
-    "corea del sur": "KOR",
-    "south korea": "KOR",
-    "republic of korea": "KOR",
-
-    "corea del norte": "PRK",
-    "north korea": "PRK",
-
-    "indonesia": "IDN",
-
-    "filipinas": "PHL",
-    "philippines": "PHL",
-
-    "tailandia": "THA",
-    "thailand": "THA",
-
-    "vietnam": "VNM",
-
-    "turquia": "TUR",
-    "turkey": "TUR",
-
-    "arabia saudita": "SAU",
-    "saudi arabia": "SAU",
-
-    "israel": "ISR",
-
-    "iran": "IRN",
-
-    "irak": "IRQ",
-    "iraq": "IRQ",
-
-    "pakistan": "PAK",
-
-    "nepal": "NPL",
-
-    # --------------------------------------------------------
-    # ÁFRICA
-    # --------------------------------------------------------
-
-    "egipto": "EGY",
-    "egypt": "EGY",
-
-    "sudafrica": "ZAF",
-    "south africa": "ZAF",
-
-    "marruecos": "MAR",
-    "morocco": "MAR",
-
-    "argelia": "DZA",
-    "algeria": "DZA",
-
-    "kenia": "KEN",
-    "kenya": "KEN",
-
-    "etiopia": "ETH",
-    "ethiopia": "ETH",
-
-    "nigeria": "NGA",
-
-    "ghana": "GHA",
-
-    "tanzania": "TZA",
-
-    # --------------------------------------------------------
-    # OCEANÍA
-    # --------------------------------------------------------
-
-    "australia": "AUS",
-
-    "nueva zelanda": "NZL",
-    "new zealand": "NZL",
-}
-
-
-# ============================================================
-# NORMALIZAR TEXTO
-# ============================================================
-
-def normalizar_texto(
-    texto: str
+def normalizar_nivel(
+    nivel: str
 ) -> str:
 
-    texto = str(
-        texto or ""
-    ).strip().lower()
+    nivel = str(
+        nivel or "ADM0"
+    ).strip().upper()
 
-    texto = unicodedata.normalize(
-        "NFD",
-        texto
-    )
+    niveles_validos = {
+        "ADM0",
+        "ADM1",
+        "ADM2",
+        "ADM3",
+        "ADM4",
+        "ADM5"
+    }
 
-    texto = "".join(
-        caracter
-        for caracter in texto
-        if unicodedata.category(
-            caracter
-        ) != "Mn"
-    )
+    if nivel not in niveles_validos:
 
-    texto = re.sub(
-        r"[^a-z0-9\s]",
-        " ",
-        texto
-    )
+        raise ValueError(
+            f"Nivel administrativo no válido: {nivel}"
+        )
 
-    texto = re.sub(
-        r"\s+",
-        " ",
-        texto
-    )
-
-    return texto.strip()
+    return nivel
 
 
 # ============================================================
-# CATÁLOGO MUNDIAL GEOBOUNDARIES
+# VALIDAR CÓDIGO ISO3
 # ============================================================
 
-@lru_cache(maxsize=1)
-def obtener_catalogo_paises() -> List[Dict[str, Any]]:
+def normalizar_iso3(
+    codigo_iso3: str
+) -> str:
+
+    codigo = str(
+        codigo_iso3 or ""
+    ).strip().upper()
+
+    if len(codigo) != 3:
+
+        raise ValueError(
+            "El código del país debe ser ISO3, "
+            "por ejemplo COL, ECU, PER o ESP."
+        )
+
+    return codigo
+
+
+# ============================================================
+# VERIFICAR SERVICIO
+# ============================================================
+
+def verificar_geoboundaries() -> Dict[str, Any]:
 
     try:
 
+        resultado = obtener_metadatos_geoboundaries(
+            codigo_iso3="COL",
+            nivel="ADM0"
+        )
+
+        if not resultado.get(
+            "ok",
+            False
+        ):
+
+            return resultado
+
+        return {
+            "ok": True,
+            "fuente": "geoBoundaries",
+            "mensaje": (
+                "Servicio geoBoundaries disponible."
+            )
+        }
+
+    except Exception as error:
+
+        return {
+            "ok": False,
+            "fuente": "geoBoundaries",
+            "error": str(error)
+        }
+
+
+# ============================================================
+# OBTENER METADATOS
+# ============================================================
+
+def obtener_metadatos_geoboundaries(
+    codigo_iso3: str,
+    nivel: str = "ADM0"
+) -> Dict[str, Any]:
+
+    try:
+
+        codigo = normalizar_iso3(
+            codigo_iso3
+        )
+
+        nivel_normalizado = normalizar_nivel(
+            nivel
+        )
+
+        url = (
+            f"{GEOBOUNDARIES_BASE_URL}/"
+            f"{codigo}/{nivel_normalizado}/"
+        )
+
         respuesta = requests.get(
-            GEOBOUNDARIES_CATALOGO_URL,
+            url,
             timeout=GEOBOUNDARIES_TIMEOUT
         )
+
+        # ----------------------------------------------------
+        # NIVEL O PAÍS NO DISPONIBLE
+        # ----------------------------------------------------
+
+        if respuesta.status_code == 404:
+
+            return {
+                "ok": False,
+                "tipo": "sin_resultado",
+                "fuente": "geoBoundaries",
+                "codigo_iso3": codigo,
+                "nivel": nivel_normalizado,
+                "mensaje": (
+                    f"geoBoundaries no tiene disponible "
+                    f"{nivel_normalizado} para {codigo}."
+                )
+            }
 
         respuesta.raise_for_status()
 
@@ -295,854 +162,6 @@ def obtener_catalogo_paises() -> List[Dict[str, Any]]:
 
         if not isinstance(
             datos,
-            list
-        ):
-
-            return []
-
-        return datos
-
-    except Exception:
-
-        return []
-
-
-# ============================================================
-# COMPROBAR FRASE
-# ============================================================
-
-def contiene_frase(
-    texto: str,
-    frase: str
-) -> bool:
-
-    texto_normalizado = (
-        f" {normalizar_texto(texto)} "
-    )
-
-    frase_normalizada = (
-        f" {normalizar_texto(frase)} "
-    )
-
-    return (
-        frase_normalizada
-        in texto_normalizado
-    )
-
-
-# ============================================================
-# RESOLVER PAÍS
-# ============================================================
-
-def resolver_pais(
-    pregunta: str
-) -> Optional[Tuple[str, str]]:
-
-    pregunta_normalizada = (
-        normalizar_texto(
-            pregunta
-        )
-    )
-
-    # --------------------------------------------------------
-    # 1. ALIAS CONOCIDOS
-    # --------------------------------------------------------
-
-    alias_ordenados = sorted(
-        ALIAS_PAISES.items(),
-        key=lambda elemento: len(
-            elemento[0]
-        ),
-        reverse=True
-    )
-
-    for nombre, codigo in alias_ordenados:
-
-        if contiene_frase(
-            pregunta_normalizada,
-            nombre
-        ):
-
-            return (
-                codigo,
-                nombre
-            )
-
-    # --------------------------------------------------------
-    # 2. CATÁLOGO DINÁMICO GEOBOUNDARIES
-    # --------------------------------------------------------
-
-    catalogo = (
-        obtener_catalogo_paises()
-    )
-
-    coincidencias = []
-
-    for pais in catalogo:
-
-        nombre = str(
-            pais.get(
-                "boundaryName",
-                ""
-            )
-        ).strip()
-
-        codigo = str(
-            pais.get(
-                "boundaryISO",
-                ""
-            )
-        ).strip().upper()
-
-        if not nombre:
-
-            continue
-
-        if len(codigo) != 3:
-
-            continue
-
-        nombre_normalizado = (
-            normalizar_texto(
-                nombre
-            )
-        )
-
-        if contiene_frase(
-            pregunta_normalizada,
-            nombre_normalizado
-        ):
-
-            coincidencias.append(
-                (
-                    len(
-                        nombre_normalizado
-                    ),
-                    codigo,
-                    nombre
-                )
-            )
-
-    if not coincidencias:
-
-        return None
-
-    coincidencias.sort(
-        reverse=True
-    )
-
-    _, codigo, nombre = (
-        coincidencias[0]
-    )
-
-    return (
-        codigo,
-        nombre
-    )
-
-
-# ============================================================
-# DETECTAR CONSULTA GEOBOUNDARIES
-# ============================================================
-
-def es_consulta_geoboundaries(
-    pregunta: str
-) -> bool:
-
-    texto = normalizar_texto(
-        pregunta
-    )
-
-    # ========================================================
-    # 1. CONSULTAS EXPLÍCITAS DE LÍMITES
-    # ========================================================
-
-    palabras_clave = [
-
-        # Límites
-        "limite",
-        "limites",
-        "frontera",
-        "fronteras",
-
-        # ADM1
-        "departamento",
-        "departamentos",
-        "provincia",
-        "provincias",
-        "estado",
-        "estados",
-        "region",
-        "regiones",
-
-        # ADM2
-        "municipio",
-        "municipios",
-        "condado",
-        "condados",
-        "distrito",
-        "distritos",
-        "comuna",
-        "comunas",
-
-        # General
-        "division administrativa",
-        "divisiones administrativas",
-    ]
-
-    if any(
-        contiene_frase(
-            texto,
-            palabra
-        )
-        for palabra
-        in palabras_clave
-    ):
-
-        return True
-
-
-    # ========================================================
-    # 2. MOSTRAR DIRECTAMENTE UN PAÍS
-    #
-    # Ejemplos:
-    #
-    # Muéstrame España
-    # Muestra Colombia
-    # Enséñame México
-    # Dibuja Ecuador
-    # Muéstrame el mapa de Perú
-    # ========================================================
-
-    acciones_mapa = [
-        "muestrame",
-        "muestra",
-        "mostrar",
-        "ensename",
-        "ensena",
-        "dibuja",
-        "dibujame",
-        "ver",
-    ]
-
-    tiene_accion_mapa = any(
-        texto == accion
-        or texto.startswith(
-            accion + " "
-        )
-        for accion
-        in acciones_mapa
-    )
-
-    if not tiene_accion_mapa:
-
-        return False
-
-    pais = resolver_pais(
-        pregunta
-    )
-
-    if pais is None:
-
-        return False
-
-    _, nombre_detectado = pais
-
-    resto = texto
-
-    for accion in sorted(
-        acciones_mapa,
-        key=len,
-        reverse=True
-    ):
-
-        if resto.startswith(
-            accion + " "
-        ):
-
-            resto = resto[
-                len(accion):
-            ].strip()
-
-            break
-
-    # --------------------------------------------------------
-    # QUITAR ARTÍCULOS
-    # --------------------------------------------------------
-
-    resto = re.sub(
-        r"^(el|la|los|las)\s+",
-        "",
-        resto
-    )
-
-    # --------------------------------------------------------
-    # QUITAR EXPRESIONES CARTOGRÁFICAS
-    # --------------------------------------------------------
-
-    resto = re.sub(
-        r"^(mapa\s+de|territorio\s+de|pais\s+de)\s+",
-        "",
-        resto
-    )
-
-    # --------------------------------------------------------
-    # QUITAR "EN EL MAPA"
-    # --------------------------------------------------------
-
-    resto = re.sub(
-        r"\s+en\s+el\s+mapa$",
-        "",
-        resto
-    ).strip()
-
-    nombre_normalizado = (
-        normalizar_texto(
-            nombre_detectado
-        )
-    )
-
-    return (
-        resto ==
-        nombre_normalizado
-    )
-
-
-# ============================================================
-# DETERMINAR NIVEL ADMINISTRATIVO
-# ============================================================
-
-def determinar_nivel(
-    pregunta: str
-) -> str:
-
-    texto = normalizar_texto(
-        pregunta
-    )
-
-    # --------------------------------------------------------
-    # ADM2
-    # --------------------------------------------------------
-
-    palabras_adm2 = [
-        "municipio",
-        "municipios",
-        "condado",
-        "condados",
-        "distrito",
-        "distritos",
-        "comuna",
-        "comunas",
-    ]
-
-    if any(
-        contiene_frase(
-            texto,
-            palabra
-        )
-        for palabra
-        in palabras_adm2
-    ):
-
-        return "ADM2"
-
-    # --------------------------------------------------------
-    # ADM1
-    # --------------------------------------------------------
-
-    palabras_adm1 = [
-        "departamento",
-        "departamentos",
-        "provincia",
-        "provincias",
-        "estado",
-        "estados",
-        "region",
-        "regiones",
-    ]
-
-    if any(
-        contiene_frase(
-            texto,
-            palabra
-        )
-        for palabra
-        in palabras_adm1
-    ):
-
-        return "ADM1"
-
-    # --------------------------------------------------------
-    # POR DEFECTO: PAÍS
-    # --------------------------------------------------------
-
-    return "ADM0"
-
-
-# ============================================================
-# ETIQUETA HUMANA PLURAL
-# ============================================================
-
-def obtener_etiqueta_nivel(
-    pregunta: str,
-    nivel: str
-) -> str:
-
-    texto = normalizar_texto(
-        pregunta
-    )
-
-    if nivel == "ADM1":
-
-        if (
-            contiene_frase(
-                texto,
-                "departamento"
-            )
-            or contiene_frase(
-                texto,
-                "departamentos"
-            )
-        ):
-
-            return "departamentos"
-
-        if (
-            contiene_frase(
-                texto,
-                "provincia"
-            )
-            or contiene_frase(
-                texto,
-                "provincias"
-            )
-        ):
-
-            return "provincias"
-
-        if (
-            contiene_frase(
-                texto,
-                "estado"
-            )
-            or contiene_frase(
-                texto,
-                "estados"
-            )
-        ):
-
-            return "estados"
-
-        if (
-            contiene_frase(
-                texto,
-                "region"
-            )
-            or contiene_frase(
-                texto,
-                "regiones"
-            )
-        ):
-
-            return "regiones"
-
-        return (
-            "divisiones administrativas "
-            "de primer nivel"
-        )
-
-    if nivel == "ADM2":
-
-        if (
-            contiene_frase(
-                texto,
-                "municipio"
-            )
-            or contiene_frase(
-                texto,
-                "municipios"
-            )
-        ):
-
-            return "municipios"
-
-        if (
-            contiene_frase(
-                texto,
-                "condado"
-            )
-            or contiene_frase(
-                texto,
-                "condados"
-            )
-        ):
-
-            return "condados"
-
-        if (
-            contiene_frase(
-                texto,
-                "distrito"
-            )
-            or contiene_frase(
-                texto,
-                "distritos"
-            )
-        ):
-
-            return "distritos"
-
-        if (
-            contiene_frase(
-                texto,
-                "comuna"
-            )
-            or contiene_frase(
-                texto,
-                "comunas"
-            )
-        ):
-
-            return "comunas"
-
-        return (
-            "divisiones administrativas "
-            "de segundo nivel"
-        )
-
-    return "límite nacional"
-
-
-# ============================================================
-# ETIQUETA HUMANA SINGULAR
-# ============================================================
-
-def obtener_etiqueta_singular(
-    pregunta: str,
-    nivel: str
-) -> Tuple[str, str]:
-
-    texto = normalizar_texto(
-        pregunta
-    )
-
-    if nivel == "ADM1":
-
-        if (
-            contiene_frase(
-                texto,
-                "departamento"
-            )
-            or contiene_frase(
-                texto,
-                "departamentos"
-            )
-        ):
-
-            return (
-                "el",
-                "departamento"
-            )
-
-        if (
-            contiene_frase(
-                texto,
-                "provincia"
-            )
-            or contiene_frase(
-                texto,
-                "provincias"
-            )
-        ):
-
-            return (
-                "la",
-                "provincia"
-            )
-
-        if (
-            contiene_frase(
-                texto,
-                "estado"
-            )
-            or contiene_frase(
-                texto,
-                "estados"
-            )
-        ):
-
-            return (
-                "el",
-                "estado"
-            )
-
-        if (
-            contiene_frase(
-                texto,
-                "region"
-            )
-            or contiene_frase(
-                texto,
-                "regiones"
-            )
-        ):
-
-            return (
-                "la",
-                "región"
-            )
-
-        return (
-            "la",
-            "división administrativa"
-        )
-
-    if nivel == "ADM2":
-
-        if (
-            contiene_frase(
-                texto,
-                "municipio"
-            )
-            or contiene_frase(
-                texto,
-                "municipios"
-            )
-        ):
-
-            return (
-                "el",
-                "municipio"
-            )
-
-        if (
-            contiene_frase(
-                texto,
-                "condado"
-            )
-            or contiene_frase(
-                texto,
-                "condados"
-            )
-        ):
-
-            return (
-                "el",
-                "condado"
-            )
-
-        if (
-            contiene_frase(
-                texto,
-                "distrito"
-            )
-            or contiene_frase(
-                texto,
-                "distritos"
-            )
-        ):
-
-            return (
-                "el",
-                "distrito"
-            )
-
-        if (
-            contiene_frase(
-                texto,
-                "comuna"
-            )
-            or contiene_frase(
-                texto,
-                "comunas"
-            )
-        ):
-
-            return (
-                "la",
-                "comuna"
-            )
-
-        return (
-            "la",
-            "división administrativa"
-        )
-
-    return (
-        "el",
-        "país"
-    )
-
-
-# ============================================================
-# DETECTAR CRITERIO DE ÁREA
-# ============================================================
-
-def detectar_criterio_area(
-    pregunta: str
-) -> Optional[str]:
-
-    texto = normalizar_texto(
-        pregunta
-    )
-
-    # --------------------------------------------------------
-    # MENOR
-    # --------------------------------------------------------
-
-    expresiones_menor = [
-        "mas pequena",
-        "mas pequeno",
-        "menor area",
-        "de menor area",
-        "la menor",
-        "el menor",
-        "mas chica",
-        "mas chico",
-    ]
-
-    if any(
-        expresion in texto
-        for expresion
-        in expresiones_menor
-    ):
-
-        return "menor"
-
-    # --------------------------------------------------------
-    # MAYOR
-    # --------------------------------------------------------
-
-    expresiones_mayor = [
-        "mas grande",
-        "mayor area",
-        "de mayor area",
-        "la mayor",
-        "el mayor",
-        "mas extensa",
-        "mas extenso",
-    ]
-
-    if any(
-        expresion in texto
-        for expresion
-        in expresiones_mayor
-    ):
-
-        return "mayor"
-
-    return None
-
-
-# ============================================================
-# FORMATEAR ÁREA EN ESPAÑOL
-# ============================================================
-
-def formatear_area_km2(
-    area: Any
-) -> str:
-
-    try:
-
-        numero = float(
-            area
-        )
-
-    except (
-        TypeError,
-        ValueError
-    ):
-
-        return str(
-            area
-        )
-
-    texto = (
-        f"{numero:,.2f}"
-    )
-
-    texto = texto.replace(
-        ",",
-        "_"
-    )
-
-    texto = texto.replace(
-        ".",
-        ","
-    )
-
-    texto = texto.replace(
-        "_",
-        "."
-    )
-
-    return texto
-
-
-# ============================================================
-# RESOLVER CONSULTA GEOBOUNDARIES
-# ============================================================
-
-def resolver_consulta_geoboundaries(
-    pregunta: str
-) -> Optional[Dict[str, Any]]:
-
-    # --------------------------------------------------------
-    # 1. VERIFICAR INTENCIÓN
-    # --------------------------------------------------------
-
-    if not es_consulta_geoboundaries(
-        pregunta
-    ):
-
-        return None
-
-    # --------------------------------------------------------
-    # 2. IDENTIFICAR PAÍS
-    # --------------------------------------------------------
-
-    pais = resolver_pais(
-        pregunta
-    )
-
-    if pais is None:
-
-        # No apropiarse de una consulta
-        # que otra fuente pueda resolver.
-        return None
-
-    codigo_iso3, nombre_detectado = pais
-
-    # --------------------------------------------------------
-    # 3. DETERMINAR NIVEL
-    # --------------------------------------------------------
-
-    nivel = determinar_nivel(
-        pregunta
-    )
-
-    # ========================================================
-    # 4. ANÁLISIS DE ÁREA
-    # ========================================================
-
-    criterio_area = (
-        detectar_criterio_area(
-            pregunta
-        )
-    )
-
-    if criterio_area is not None:
-
-        resultado_area = (
-            obtener_extremo_area_geoboundaries(
-                codigo_iso3=codigo_iso3,
-                nivel=nivel,
-                criterio=criterio_area
-            )
-        )
-
-        if not isinstance(
-            resultado_area,
             dict
         ):
 
@@ -1151,242 +170,544 @@ def resolver_consulta_geoboundaries(
                 "tipo": "respuesta_invalida",
                 "fuente": "geoBoundaries",
                 "mensaje": (
-                    "El análisis geométrico de "
                     "geoBoundaries devolvió una "
-                    "respuesta inválida."
-                ),
-                "ejecuto_sql": False
+                    "respuesta inesperada."
+                )
             }
 
-        resultado_area[
-            "consulta"
-        ] = pregunta
-
-        # ----------------------------------------------------
-        # ERROR CONTROLADO
-        # ----------------------------------------------------
-
-        if not resultado_area.get(
-            "ok",
-            False
-        ):
-
-            resultado_area[
-                "ejecuto_sql"
-            ] = False
-
-            return resultado_area
-
-        # ----------------------------------------------------
-        # MENSAJE NATURAL
-        # ----------------------------------------------------
-
-        articulo, tipo_division = (
-            obtener_etiqueta_singular(
-                pregunta,
-                nivel
-            )
-        )
-
-        nombre_division = (
-            resultado_area.get(
-                "nombre_division"
-            )
-            or "división administrativa"
-        )
-
-        area_km2 = (
-            resultado_area.get(
-                "area_km2_aprox"
-            )
-        )
-
-        nombre_pais = (
-            resultado_area.get(
-                "nombre"
-            )
-            or nombre_detectado
-            or codigo_iso3
-        )
-
-        area_formateada = (
-            formatear_area_km2(
-                area_km2
-            )
-        )
-
-        if criterio_area == "menor":
-
-            mensaje = (
-                f"{articulo.capitalize()} "
-                f"{tipo_division} de menor área "
-                f"de {nombre_pais} es "
-                f"{nombre_division}, "
-                f"con aproximadamente "
-                f"{area_formateada} km²."
-            )
-
-        else:
-
-            mensaje = (
-                f"{articulo.capitalize()} "
-                f"{tipo_division} de mayor área "
-                f"de {nombre_pais} es "
-                f"{nombre_division}, "
-                f"con aproximadamente "
-                f"{area_formateada} km²."
-            )
-
-        resultado_area[
-            "mensaje"
-        ] = mensaje
-
-        resultado_area[
-            "inteligencia"
-        ] = {
-            "tipo": "analisis_geometrico",
+        return {
+            "ok": True,
             "fuente": "geoBoundaries",
-            "mensaje": mensaje
+            "codigo_iso3": codigo,
+            "nivel": nivel_normalizado,
+            "metadatos": datos
         }
 
-        resultado_area[
-            "ejecuto_sql"
-        ] = False
+    except requests.exceptions.Timeout:
 
-        resultado_area[
-            "reutilizado"
-        ] = False
-
-        # ----------------------------------------------------
-        # MEJORAR TÍTULO DE LEYENDA
-        # ----------------------------------------------------
-
-        visualizacion = (
-            resultado_area.get(
-                "visualizacion"
+        return {
+            "ok": False,
+            "tipo": "timeout",
+            "fuente": "geoBoundaries",
+            "mensaje": (
+                "geoBoundaries tardó demasiado "
+                "en responder."
             )
-        )
+        }
 
-        if isinstance(
-            visualizacion,
-            dict
-        ):
+    except requests.exceptions.RequestException as error:
 
-            visualizacion[
-                "titulo_leyenda"
-            ] = (
-                f"{nombre_division} — "
-                f"{area_formateada} km²"
-            )
+        return {
+            "ok": False,
+            "tipo": "conexion",
+            "fuente": "geoBoundaries",
+            "mensaje": (
+                "No fue posible consultar "
+                "geoBoundaries."
+            ),
+            "error": str(error)
+        }
 
-        return resultado_area
+    except ValueError as error:
 
-    # ========================================================
-    # 5. CONSULTA NORMAL DE LÍMITES
-    # ========================================================
+        return {
+            "ok": False,
+            "tipo": "consulta_invalida",
+            "fuente": "geoBoundaries",
+            "mensaje": str(error)
+        }
 
-    resultado = (
-        obtener_geojson_geoboundaries(
-            codigo_iso3=codigo_iso3,
-            nivel=nivel,
-            simplificado=True
-        )
-    )
 
-    # --------------------------------------------------------
-    # ERROR CONTROLADO
-    # --------------------------------------------------------
+# ============================================================
+# RECORRER COORDENADAS GEOJSON
+# ============================================================
 
-    if not resultado.get(
-        "ok",
-        False
+def extraer_coordenadas(
+    coordenadas: Any
+) -> List[List[float]]:
+
+    resultado: List[List[float]] = []
+
+    if not isinstance(
+        coordenadas,
+        list
     ):
-
-        resultado[
-            "consulta"
-        ] = pregunta
-
-        resultado[
-            "codigo_iso3"
-        ] = codigo_iso3
-
-        resultado[
-            "nivel"
-        ] = nivel
-
-        resultado[
-            "ejecuto_sql"
-        ] = False
 
         return resultado
 
     # --------------------------------------------------------
-    # RESPUESTA NATURAL
+    # PAR [LONGITUD, LATITUD]
     # --------------------------------------------------------
 
-    nombre_oficial = (
-        resultado.get(
-            "nombre"
+    if (
+        len(coordenadas) >= 2
+        and isinstance(
+            coordenadas[0],
+            (int, float)
         )
-        or nombre_detectado
-        or codigo_iso3
+        and isinstance(
+            coordenadas[1],
+            (int, float)
+        )
+    ):
+
+        resultado.append(
+            [
+                float(coordenadas[0]),
+                float(coordenadas[1])
+            ]
+        )
+
+        return resultado
+
+    # --------------------------------------------------------
+    # LISTAS ANIDADAS
+    # --------------------------------------------------------
+
+    for elemento in coordenadas:
+
+        resultado.extend(
+            extraer_coordenadas(
+                elemento
+            )
+        )
+
+    return resultado
+
+
+# ============================================================
+# CALCULAR BBOX FEATURE COLLECTION
+# ============================================================
+
+def calcular_bbox(
+    geojson: Dict[str, Any]
+) -> Optional[List[float]]:
+
+    puntos: List[List[float]] = []
+
+    features = geojson.get(
+        "features",
+        []
     )
 
-    etiqueta = (
-        obtener_etiqueta_nivel(
-            pregunta,
+    if not isinstance(
+        features,
+        list
+    ):
+
+        return None
+
+    for feature in features:
+
+        if not isinstance(
+            feature,
+            dict
+        ):
+
+            continue
+
+        geometria = feature.get(
+            "geometry"
+        )
+
+        if not isinstance(
+            geometria,
+            dict
+        ):
+
+            continue
+
+        puntos.extend(
+            extraer_coordenadas(
+                geometria.get(
+                    "coordinates"
+                )
+            )
+        )
+
+    if not puntos:
+
+        return None
+
+    longitudes = [
+        punto[0]
+        for punto in puntos
+    ]
+
+    latitudes = [
+        punto[1]
+        for punto in puntos
+    ]
+
+    return [
+        min(longitudes),
+        min(latitudes),
+        max(longitudes),
+        max(latitudes)
+    ]
+
+
+# ============================================================
+# DESCARGAR GEOJSON
+# ============================================================
+
+def obtener_geojson_geoboundaries(
+    codigo_iso3: str,
+    nivel: str = "ADM0",
+    simplificado: bool = True
+) -> Dict[str, Any]:
+
+    # --------------------------------------------------------
+    # NORMALIZAR PARÁMETROS
+    # --------------------------------------------------------
+
+    try:
+
+        codigo = normalizar_iso3(
+            codigo_iso3
+        )
+
+        nivel_normalizado = normalizar_nivel(
             nivel
         )
+
+    except ValueError as error:
+
+        return {
+            "ok": False,
+            "tipo": "consulta_invalida",
+            "fuente": "geoBoundaries",
+            "mensaje": str(error)
+        }
+
+
+    # --------------------------------------------------------
+    # CONSULTAR METADATOS
+    # --------------------------------------------------------
+
+    metadata_response = (
+        obtener_metadatos_geoboundaries(
+            codigo_iso3=codigo,
+            nivel=nivel_normalizado
+        )
     )
 
-    total = resultado.get(
-        "total_features",
-        0
+    if not metadata_response.get(
+        "ok",
+        False
+    ):
+
+        return metadata_response
+
+
+    metadata = metadata_response.get(
+        "metadatos",
+        {}
     )
 
-    if nivel == "ADM0":
 
-        mensaje = (
-            f"Se obtuvo el límite nacional de "
-            f"{nombre_oficial} "
-            f"desde geoBoundaries."
+    # --------------------------------------------------------
+    # SELECCIONAR GEOJSON
+    #
+    # Para visualización usamos por defecto la versión
+    # simplificada.
+    #
+    # Para análisis geométrico puede utilizarse:
+    #
+    # simplificado=False
+    #
+    # y así descargar la geometría completa.
+    # --------------------------------------------------------
+
+    if simplificado:
+
+        geojson_url = (
+            metadata.get(
+                "simplifiedGeometryGeoJSON"
+            )
+            or metadata.get(
+                "gjDownloadURL"
+            )
         )
 
     else:
 
-        mensaje = (
-            f"Se obtuvieron {total} "
-            f"{etiqueta} de "
-            f"{nombre_oficial} "
-            f"desde geoBoundaries."
+        geojson_url = metadata.get(
+            "gjDownloadURL"
         )
 
+
+    if not geojson_url:
+
+        return {
+            "ok": False,
+            "tipo": "sin_geometria",
+            "fuente": "geoBoundaries",
+            "codigo_iso3": codigo,
+            "nivel": nivel_normalizado,
+            "mensaje": (
+                "geoBoundaries no proporcionó "
+                "un enlace GeoJSON."
+            )
+        }
+
+
     # --------------------------------------------------------
-    # COMPLETAR RESPUESTA
+    # DESCARGAR GEOJSON
     # --------------------------------------------------------
 
-    resultado[
-        "consulta"
-    ] = pregunta
+    try:
 
-    resultado[
-        "mensaje"
-    ] = mensaje
+        respuesta = requests.get(
+            geojson_url,
+            timeout=GEOBOUNDARIES_TIMEOUT
+        )
 
-    resultado[
-        "ejecuto_sql"
-    ] = False
+        respuesta.raise_for_status()
 
-    resultado[
-        "reutilizado"
-    ] = False
+        geojson = respuesta.json()
 
-    resultado[
-        "inteligencia"
-    ] = {
-        "tipo": "fuente_externa",
+    except requests.exceptions.Timeout:
+
+        return {
+            "ok": False,
+            "tipo": "timeout",
+            "fuente": "geoBoundaries",
+            "codigo_iso3": codigo,
+            "nivel": nivel_normalizado,
+            "mensaje": (
+                "La geometría de geoBoundaries "
+                "tardó demasiado en descargarse."
+            )
+        }
+
+    except requests.exceptions.RequestException as error:
+
+        return {
+            "ok": False,
+            "tipo": "conexion",
+            "fuente": "geoBoundaries",
+            "codigo_iso3": codigo,
+            "nivel": nivel_normalizado,
+            "mensaje": (
+                "No fue posible descargar "
+                "la geometría de geoBoundaries."
+            ),
+            "error": str(error)
+        }
+
+    except ValueError:
+
+        return {
+            "ok": False,
+            "tipo": "respuesta_invalida",
+            "fuente": "geoBoundaries",
+            "codigo_iso3": codigo,
+            "nivel": nivel_normalizado,
+            "mensaje": (
+                "El recurso descargado no contiene "
+                "un GeoJSON válido."
+            )
+        }
+
+
+    # --------------------------------------------------------
+    # VALIDAR FEATURE COLLECTION
+    # --------------------------------------------------------
+
+    if not isinstance(
+        geojson,
+        dict
+    ):
+
+        return {
+            "ok": False,
+            "tipo": "respuesta_invalida",
+            "fuente": "geoBoundaries",
+            "codigo_iso3": codigo,
+            "nivel": nivel_normalizado,
+            "mensaje": (
+                "La geometría descargada "
+                "no es válida."
+            )
+        }
+
+
+    if geojson.get(
+        "type"
+    ) != "FeatureCollection":
+
+        return {
+            "ok": False,
+            "tipo": "respuesta_invalida",
+            "fuente": "geoBoundaries",
+            "codigo_iso3": codigo,
+            "nivel": nivel_normalizado,
+            "mensaje": (
+                "El resultado no corresponde "
+                "a un FeatureCollection."
+            )
+        }
+
+
+    features = geojson.get(
+        "features",
+        []
+    )
+
+
+    if not isinstance(
+        features,
+        list
+    ):
+
+        return {
+            "ok": False,
+            "tipo": "respuesta_invalida",
+            "fuente": "geoBoundaries",
+            "codigo_iso3": codigo,
+            "nivel": nivel_normalizado,
+            "mensaje": (
+                "El FeatureCollection no contiene "
+                "una lista válida de entidades."
+            )
+        }
+
+
+    if not features:
+
+        return {
+            "ok": False,
+            "tipo": "sin_geometria",
+            "fuente": "geoBoundaries",
+            "codigo_iso3": codigo,
+            "nivel": nivel_normalizado,
+            "mensaje": (
+                "geoBoundaries no devolvió "
+                "geometrías."
+            )
+        }
+
+
+    # --------------------------------------------------------
+    # CALCULAR BBOX
+    # --------------------------------------------------------
+
+    bbox = calcular_bbox(
+        geojson
+    )
+
+
+    # --------------------------------------------------------
+    # DATOS DESCRIPTIVOS
+    # --------------------------------------------------------
+
+    nombre = (
+        metadata.get(
+            "boundaryName"
+        )
+        or codigo
+    )
+
+    nivel_respuesta = (
+        metadata.get(
+            "boundaryType"
+        )
+        or nivel_normalizado
+    )
+
+    anio = metadata.get(
+        "boundaryYearRepresented"
+    )
+
+    licencia = metadata.get(
+        "boundaryLicense"
+    )
+
+    boundary_canonical = metadata.get(
+        "boundaryCanonical"
+    )
+
+    fuente_original = metadata.get(
+        "boundarySource"
+    )
+
+
+    # --------------------------------------------------------
+    # RESPUESTA TERRI+
+    # --------------------------------------------------------
+
+    return {
+        "ok": True,
+        "tipo": "geojson",
+        "modo": "mapa",
         "fuente": "geoBoundaries",
-        "mensaje": mensaje
-    }
 
-    return resultado
+        "codigo_iso3": codigo,
+
+        "nombre": nombre,
+
+        "nivel": nivel_respuesta,
+
+        "anio": anio,
+
+        "licencia": licencia,
+
+        "boundary_canonical": (
+            boundary_canonical
+        ),
+
+        "fuente_original": (
+            fuente_original
+        ),
+
+        "resultado": geojson,
+
+        "total_features": len(
+            features
+        ),
+
+        "bbox": bbox,
+
+        "layer_id": (
+            "geoboundaries_"
+            + codigo.lower()
+            + "_"
+            + str(
+                nivel_respuesta
+            ).lower()
+        ),
+
+        "visualizacion": {
+            "modo": "simple",
+            "campo_categoria": None,
+            "campo_valor": None,
+            "mostrar_leyenda": True,
+            "titulo_leyenda": (
+                f"{nombre} — "
+                f"{nivel_respuesta}"
+            )
+        },
+
+        "mensaje": (
+            f"Se obtuvo "
+            f"{nivel_respuesta} "
+            f"de {nombre} "
+            f"desde geoBoundaries."
+        ),
+
+        "inteligencia": {
+            "tipo": "fuente_externa",
+            "fuente": "geoBoundaries",
+            "mensaje": (
+                f"Se obtuvo "
+                f"{nivel_respuesta} "
+                f"de {nombre} "
+                f"desde geoBoundaries."
+            )
+        },
+
+        "ejecuto_sql": False,
+
+        "reutilizado": False
+    }
