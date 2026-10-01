@@ -21,6 +21,10 @@ from services.external_sources.global_sources.geoboundaries_service import (
     obtener_geojson_geoboundaries,
 )
 
+from services.external_sources.global_sources.geoboundaries_router import (
+    resolver_consulta_geoboundaries,
+)
+
 import ia
 import tributario
 
