@@ -22,6 +22,10 @@ from services.external_sources.igac_router import (
     resolver_consulta_igac,
 )
 
+from services.external_sources.global_sources.geoboundaries_router import (
+    resolver_consulta_geoboundaries,
+)
+
 from services.external_sources.global_sources.geonames_router import (
     resolver_consulta_geonames,
 )
@@ -921,6 +925,361 @@ def analizar_pregunta(pregunta: str) -> dict:
         imprimir_resumen_memoria()
 
         return respuesta_igac
+        # ========================================================
+    # FUENTE EXTERNA GEOBOUNDARIES
+    # LÍMITES ADMINISTRATIVOS INTERNACIONALES
+    # ========================================================
+
+    respuesta_geoboundaries = (
+        resolver_consulta_geoboundaries(
+            pregunta
+        )
+    )
+
+    if respuesta_geoboundaries is not None:
+
+        if not isinstance(
+            respuesta_geoboundaries,
+            dict
+        ):
+            raise ValueError(
+                "geoBoundaries no devolvió una respuesta válida."
+            )
+
+        # ----------------------------------------------------
+        # CONSULTA SIN RESULTADO
+        # ----------------------------------------------------
+
+        if not respuesta_geoboundaries.get(
+            "ok",
+            False
+        ):
+
+            respuesta_geoboundaries[
+                "pregunta"
+            ] = pregunta
+
+            respuesta_geoboundaries[
+                "seguimiento"
+            ] = False
+
+            respuesta_geoboundaries[
+                "reutilizado"
+            ] = False
+
+            respuesta_geoboundaries[
+                "ejecuto_sql"
+            ] = False
+
+            respuesta_geoboundaries.setdefault(
+                "modo",
+                "datos"
+            )
+
+            respuesta_geoboundaries.setdefault(
+                "inteligencia",
+                {
+                    "tipo": "fuente_externa",
+                    "fuente": "geoBoundaries",
+                    "mensaje": (
+                        respuesta_geoboundaries.get(
+                            "mensaje",
+                            "No fue posible obtener "
+                            "el límite administrativo."
+                        )
+                    )
+                }
+            )
+
+            respuesta_geoboundaries[
+                "decision_accion"
+            ] = {
+                "accion": (
+                    "fuente_externa_geoboundaries"
+                ),
+                "motivo": (
+                    "La pregunta corresponde a una "
+                    "consulta de límites administrativos "
+                    "internacionales."
+                ),
+                "reutilizar_resultado": False,
+                "ejecutar_sql": False,
+                "resultado_disponible": False,
+                "tipo_resultado": (
+                    respuesta_geoboundaries.get(
+                        "tipo"
+                    )
+                ),
+                "tabla": None,
+                "layer_id": None
+            }
+
+            return respuesta_geoboundaries
+
+        # ----------------------------------------------------
+        # CONSULTA CON GEOJSON
+        # ----------------------------------------------------
+
+        resultado_geoboundaries = (
+            respuesta_geoboundaries.get(
+                "resultado"
+            )
+        )
+
+        if not isinstance(
+            resultado_geoboundaries,
+            dict
+        ):
+            raise ValueError(
+                "geoBoundaries no devolvió "
+                "un GeoJSON válido."
+            )
+
+        if resultado_geoboundaries.get(
+            "type"
+        ) != "FeatureCollection":
+            raise ValueError(
+                "El resultado geoBoundaries "
+                "no corresponde a un FeatureCollection."
+            )
+
+        # ----------------------------------------------------
+        # INTELIGENCIA
+        # ----------------------------------------------------
+
+        inteligencia_geoboundaries = (
+            respuesta_geoboundaries.get(
+                "inteligencia"
+            )
+        )
+
+        if not isinstance(
+            inteligencia_geoboundaries,
+            dict
+        ):
+            inteligencia_geoboundaries = {
+                "tipo": "fuente_externa",
+                "fuente": "geoBoundaries",
+                "mensaje": (
+                    "Se obtuvo información de límites "
+                    "administrativos desde geoBoundaries."
+                )
+            }
+
+        # ----------------------------------------------------
+        # VISUALIZACIÓN
+        # ----------------------------------------------------
+
+        visualizacion_geoboundaries = (
+            respuesta_geoboundaries.get(
+                "visualizacion"
+            )
+        )
+
+        if not isinstance(
+            visualizacion_geoboundaries,
+            dict
+        ):
+            visualizacion_geoboundaries = {
+                "modo": "simple",
+                "campo_categoria": None,
+                "campo_valor": None,
+                "mostrar_leyenda": True,
+                "titulo_leyenda": (
+                    "Límites administrativos"
+                )
+            }
+
+        # ----------------------------------------------------
+        # DATOS PRINCIPALES
+        # ----------------------------------------------------
+
+        codigo_iso3_geoboundaries = str(
+            respuesta_geoboundaries.get(
+                "codigo_iso3"
+            )
+            or ""
+        ).upper()
+
+        nivel_geoboundaries = str(
+            respuesta_geoboundaries.get(
+                "nivel"
+            )
+            or "ADM0"
+        ).upper()
+
+        nombre_geoboundaries = (
+            respuesta_geoboundaries.get(
+                "nombre"
+            )
+            or codigo_iso3_geoboundaries
+        )
+
+        layer_id_geoboundaries = (
+            respuesta_geoboundaries.get(
+                "layer_id"
+            )
+            or (
+                "geoboundaries_"
+                + codigo_iso3_geoboundaries.lower()
+                + "_"
+                + nivel_geoboundaries.lower()
+            )
+        )
+
+        # ----------------------------------------------------
+        # PLAN DE FUENTE EXTERNA
+        # ----------------------------------------------------
+
+        plan_geoboundaries = {
+            "tipo_consulta": "fuente_externa",
+            "fuente": "geoBoundaries",
+            "servicio": "geoBoundaries",
+            "tema": "limites_administrativos",
+            "pais": nombre_geoboundaries,
+            "codigo_iso3": (
+                codigo_iso3_geoboundaries
+            ),
+            "nivel": nivel_geoboundaries,
+            "visualizacion": (
+                visualizacion_geoboundaries
+            )
+        }
+
+        # ----------------------------------------------------
+        # MARCADOR OPERATIVO
+        #
+        # No es una consulta SQL real.
+        # Permite conservar la arquitectura del Result Engine
+        # y la memoria conversacional de TERRI+.
+        # ----------------------------------------------------
+
+        sql_geoboundaries = (
+            "FUENTE_EXTERNA:GEOBOUNDARIES:"
+            + codigo_iso3_geoboundaries
+            + ":"
+            + nivel_geoboundaries
+        )
+
+        # ----------------------------------------------------
+        # COMPLETAR RESPUESTA TERRI+
+        # ----------------------------------------------------
+
+        respuesta_geoboundaries[
+            "pregunta"
+        ] = pregunta
+
+        respuesta_geoboundaries[
+            "seguimiento"
+        ] = False
+
+        respuesta_geoboundaries[
+            "plan"
+        ] = plan_geoboundaries
+
+        respuesta_geoboundaries[
+            "visualizacion"
+        ] = visualizacion_geoboundaries
+
+        respuesta_geoboundaries[
+            "inteligencia"
+        ] = inteligencia_geoboundaries
+
+        respuesta_geoboundaries[
+            "layer_id"
+        ] = layer_id_geoboundaries
+
+        respuesta_geoboundaries[
+            "reutilizado"
+        ] = False
+
+        respuesta_geoboundaries[
+            "ejecuto_sql"
+        ] = False
+
+        respuesta_geoboundaries[
+            "decision_accion"
+        ] = {
+            "accion": (
+                "fuente_externa_geoboundaries"
+            ),
+            "motivo": (
+                "La pregunta corresponde a una "
+                "consulta de límites administrativos "
+                "internacionales."
+            ),
+            "reutilizar_resultado": False,
+            "ejecutar_sql": False,
+            "resultado_disponible": True,
+            "tipo_resultado": "geojson",
+            "tabla": None,
+            "layer_id": (
+                layer_id_geoboundaries
+            )
+        }
+
+        # ----------------------------------------------------
+        # GUARDAR RESULTADO OPERATIVO
+        # ----------------------------------------------------
+
+        guardar_resultado_engine(
+            tipo="geojson",
+            tabla=None,
+            layer_id=(
+                layer_id_geoboundaries
+            ),
+            sql=sql_geoboundaries,
+            resultado=(
+                resultado_geoboundaries
+            ),
+            memoria={
+                "fuente": "geoBoundaries",
+                "servicio": "geoBoundaries",
+                "tema": (
+                    "limites_administrativos"
+                ),
+                "pais": (
+                    nombre_geoboundaries
+                ),
+                "codigo_iso3": (
+                    codigo_iso3_geoboundaries
+                ),
+                "nivel": (
+                    nivel_geoboundaries
+                ),
+                "anio": (
+                    respuesta_geoboundaries.get(
+                        "anio"
+                    )
+                ),
+                "licencia": (
+                    respuesta_geoboundaries.get(
+                        "licencia"
+                    )
+                )
+            },
+        )
+
+        imprimir_resultado()
+
+        # ----------------------------------------------------
+        # GUARDAR MEMORIA CONVERSACIONAL
+        # ----------------------------------------------------
+
+        guardar_memoria(
+            pregunta=pregunta,
+            pregunta_contextualizada=pregunta,
+            plan=plan_geoboundaries,
+            sql=sql_geoboundaries,
+            respuesta=respuesta_geoboundaries,
+            inteligencia=(
+                inteligencia_geoboundaries
+            ),
+        )
+
+        imprimir_resumen_memoria()
+
+        return respuesta_geoboundaries
     # ========================================================
     # FUENTE EXTERNA GEONAMES
     # TOPONIMIA Y LOCALIZACIÓN INTERNACIONAL
